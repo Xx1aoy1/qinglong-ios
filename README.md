@@ -86,7 +86,7 @@ VERSION=1.0.0 ./Scripts/build_ipa.sh
 | 触发方式 | 行为 |
 | --- | --- |
 | push 到 `main` / `master` | 构建未签名 IPA，上传为 Artifact（保留 90 天） |
-| push tag `v*`（如 `v1.0.0`） | 构建 → 校验包结构 → 创建 GitHub Release 并附 IPA → 同步到镜像仓库 |
+| push tag `v*`（如 `v1.0.0`） | 构建 → 校验包结构 → 创建 GitHub Release 并附 IPA |
 | 手动触发（`workflow_dispatch`） | 填写 `release_tag` 可直接发 Release，留空则仅产出 Artifact |
 | Pull Request | 只构建校验，不发布 |
 
@@ -99,17 +99,16 @@ pip install pillow
 python Scripts/generate_assets.py
 ```
 
-## 发布到镜像仓库（可选）
+## 发布
 
-CI 会在 push tag 时自动把 IPA 附件同步到镜像仓库 Release，需要先在 GitHub 仓库做两处配置：
+推一个 `v*` 形式的 tag 即可自动发布，无需任何证书或额外配置：
 
-1. **Secret**：`Settings → Secrets and variables → Actions → New repository secret`
-   - 名称 `MIRROR_TOKEN`，值为镜像仓库 [私人访问令牌](https://镜像仓库.com/profile/personal_access_tokens)（勾选 `projects` 权限）
-2. **Variables**：同页面切换到 `Variables` 标签，新建两条
-   - `MIRROR_OWNER` = 镜像仓库用户名（个人或组织）
-   - `MIRROR_REPO` = 镜像仓库仓库名（如 `qinglong-ios`）
+```bash
+git tag -a v1.0.0 -m "青龙助手 iOS 1.0.0"
+git push origin v1.0.0
+```
 
-未配置时 CI 会自动跳过镜像仓库同步，不影响 GitHub Release。
+CI 会完成构建 → 校验包结构 → 创建 GitHub Release 并附上 `QingLong-<version>.ipa`。
 
 ## 项目结构
 
@@ -148,7 +147,6 @@ CI 会在 push tag 时自动把 IPA 附件同步到镜像仓库 Release，需要
 │       └── Assets.xcassets         # AppIcon / AccentColor / LaunchBackground
 ├── Scripts/
 │   ├── build_ipa.sh                # macOS 一键构建
-│   ├── publish_mirror.sh            # 镜像仓库 Release 同步
 │   └── generate_assets.py          # 图标生成
 ├── .github/workflows/build-ipa.yml # CI：构建 / 校验 / 发布
 └── LICENSE                         # MIT

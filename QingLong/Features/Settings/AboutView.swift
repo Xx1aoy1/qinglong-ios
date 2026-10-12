@@ -110,27 +110,12 @@ struct AboutView: View {
                     Divider().background(Theme.separator)
                 }
 
-                if let url = AppInfo.clientMirrorURL {
-                    linkRow(title: "镜像仓库仓库", subtitle: url.absoluteString, symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.danger, url: url)
-                    Divider().background(Theme.separator)
-                }
-
                 linkRow(
                     title: "上游项目 · 青龙面板",
                     subtitle: AppInfo.upstreamURL.absoluteString,
                     symbol: "link",
                     tint: Theme.brand,
                     url: AppInfo.upstreamURL
-                )
-
-                Divider().background(Theme.separator)
-
-                linkRow(
-                    title: "上游项目 · 镜像仓库镜像",
-                    subtitle: AppInfo.upstreamMirrorURL.absoluteString,
-                    symbol: "link",
-                    tint: Theme.brand,
-                    url: AppInfo.upstreamMirrorURL
                 )
             }
             .background(Theme.surface)
@@ -140,7 +125,7 @@ struct AboutView: View {
                     .stroke(Theme.stroke, lineWidth: 0.6)
             )
 
-            if AppInfo.clientRepositoryURL == nil && AppInfo.clientMirrorURL == nil {
+            if AppInfo.clientRepositoryURL == nil {
                 Text("当前构建未注入仓库地址，可在项目 README 中查看源码与构建说明。")
                     .font(Theme.Font.caption)
                     .foregroundColor(Theme.textTertiary)

@@ -1,7 +1,7 @@
 name: Build Unsigned IPA
 
 # 在 macOS runner 上编译出「未签名」的 .app，打成 .ipa，供 TrollStore / 巨魔 安装。
-# 推 tag（v*）时自动创建 GitHub Release 并附上 ipa，同时（可选）同步到镜像仓库。
+# 推 tag（v*）时自动创建 GitHub Release 并附上 ipa。
 
 on:
   push:
@@ -83,19 +83,10 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml --use-cache
 
-      - name: Resolve repository URLs
-        env:
-          VARS_MIRROR_OWNER: ${{ vars.MIRROR_OWNER }}
-          VARS_MIRROR_REPO: ${{ vars.MIRROR_REPO }}
+      - name: Resolve repository URL
         run: |
           set -e
           echo "QL_REPOSITORY_URL=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_ENV"
-          if [ -n "$VARS_MIRROR_OWNER" ] && [ -n "$VARS_MIRROR_REPO" ]; then
-            echo "QL_MIRROR_URL=https://镜像仓库.com/${VARS_MIRROR_OWNER}/${VARS_MIRROR_REPO}" >> "$GITHUB_ENV"
-            echo "镜像仓库 URL: https://镜像仓库.com/${VARS_MIRROR_OWNER}/${VARS_MIRROR_REPO}"
-          else
-            echo "QL_MIRROR_URL=" >> "$GITHUB_ENV"
-          fi
 
       - name: Build (unsigned, arm64)
         run: |
@@ -112,7 +103,6 @@ jobs:
             VALIDATE_PRODUCT=YES \
             MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
             QL_REPOSITORY_URL="$QL_REPOSITORY_URL" \
-            QL_MIRROR_URL="$QL_MIRROR_URL" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -158,7 +148,7 @@ jobs:
           echo
           echo "== Info.plist 关键字段 =="
           plutil -p .verify/Payload/QingLong.app/Info.plist \
-            | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion|CFBundleDisplayName|CFBundleIcons|QLRepositoryURL|QLMirrorURL' || true
+            | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion|CFBundleDisplayName|CFBundleIcons|QLRepositoryURL' || true
           echo
           echo "== 图标是否编译进 Assets.car =="
           ls -la .verify/Payload/QingLong.app/ | grep -E 'Assets.car|AppIcon' || true
@@ -222,41 +212,3 @@ jobs:
             > 该 IPA 为未签名包，由 TrollStore 在安装时自动签名。请勿使用 AltStore / Sideloadly 等需要证书的工具。
           files: |
             dist/*.ipa
-
-  mirror-sync:
-    name: Mirror release to 镜像仓库
-    needs: [build, release]
-    if: ${{ always() && needs.build.result == 'success' && !cancelled() && github.ref_type == 'tag' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check 镜像仓库 token
-        id: check
-        run: |
-          if [ -z "${{ secrets.MIRROR_TOKEN }}" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::未配置 MIRROR_TOKEN，跳过镜像仓库镜像发布。"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download IPA
-        if: steps.check.outputs.skip == 'false'
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.artifact_name }}
-          path: dist
-
-      - name: Upload to 镜像仓库 Release
-        if: steps.check.outputs.skip == 'false'
-        env:
-          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
-          MIRROR_OWNER: ${{ vars.MIRROR_OWNER }}
-          MIRROR_REPO: ${{ vars.MIRROR_REPO }}
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          set -e
-          if [ -z "$MIRROR_OWNER" ] || [ -z "$MIRROR_REPO" ]; then
-            echo "::warning::未配置 MIRROR_OWNER / MIRROR_REPO 仓库变量，跳过。"
-            exit 0
-          fi
-          bash Scripts/publish_mirror.sh

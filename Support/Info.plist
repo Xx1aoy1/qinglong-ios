@@ -70,7 +70,5 @@
 	</dict>
 	<key>QLRepositoryURL</key>
 	<string>$(QL_REPOSITORY_URL)</string>
-	<key>QLMirrorURL</key>
-	<string>$(QL_MIRROR_URL)</string>
 </dict>
 </plist>

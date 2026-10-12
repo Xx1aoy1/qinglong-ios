@@ -161,20 +161,10 @@ CI 会额外校验：`unzip -l` 包结构、`file` 确认 arm64 架构、`plutil
 | 触发 | 行为 |
 | --- | --- |
 | push `main`/`master` | 构建 + 上传 Artifact（90 天） |
-| push tag `v*` | 构建 → 发布 GitHub Release（附 IPA）→ 同步镜像仓库 |
+| push tag `v*` | 构建 → 发布 GitHub Release（附 IPA） |
 | 手动 `workflow_dispatch` | 可指定 `release_tag` 直接发 Release |
 | Pull Request | 仅构建校验 |
 
 版本号规则：tag 时取 `v` 后内容；否则取 `project.yml` 的 `MARKETING_VERSION` + `run_number` 作为 build 号。
 
-### 镜像仓库同步
-
-需要仓库配置：
-
-| 类型 | 名称 | 说明 |
-| --- | --- | --- |
-| Secret | `MIRROR_TOKEN` | 镜像仓库私人令牌，勾选 `projects` 权限 |
-| Variable | `MIRROR_OWNER` | 镜像仓库用户名 / 组织名 |
-| Variable | `MIRROR_REPO` | 镜像仓库仓库名 |
-
-未配置时自动跳过，不影响 GitHub 发布。
+构建时通过 `QL_REPOSITORY_URL` 构建设置把当前仓库地址注入 `Info.plist` 的 `QLRepositoryURL`，应用「关于」页据此展示源码入口。

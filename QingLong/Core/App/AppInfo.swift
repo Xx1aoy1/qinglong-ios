@@ -29,12 +29,10 @@ enum AppInfo {
 
     /// 上游青龙面板项目
     static let upstreamURL = URL(string: "https://github.com/whyour/qinglong")!
-    static let upstreamMirrorURL = URL(string: "https://镜像仓库.com/whyour/qinglong")!
 
     /// 本客户端仓库地址。
-    /// 由构建时注入（Info.plist 的 `QLRepositoryURL` / `QLMirrorURL`，CI 会按当前仓库自动填充）。
+    /// 由构建时注入（Info.plist 的 `QLRepositoryURL`，CI 会按当前仓库自动填充）。
     static var clientRepositoryURL: URL? { infoURL(for: "QLRepositoryURL") }
-    static var clientMirrorURL: URL? { infoURL(for: "QLMirrorURL") }
 
     /// 兼容旧引用：默认指向客户端仓库（缺失时回退到上游项目）
     static var repositoryURL: URL {
