@@ -20,3 +20,14 @@
   - 本地与远端 commit sha 会不一致，但 tree 相同；正常网络下用 `git fetch && git reset --hard origin/main` 对齐
 - 工具输出渲染层可能把 `String` 显示成假字符串（曾出现 `Vfjxct`）→ 判断源码问题必须做字节级核验，不能按显示内容改代码
 - 临时脚本一律放仓库外（`%TEMP%`），`git add -A` 曾把含 token 的脚本提交，被 GitHub push protection 拦下（GH013）
+- 沙箱代理端口会变（见过 5605 / 3469）。`objects.githubusercontent.com` 可达但**间歇性 502**，下载 Release 资产要带重试；下载走 `GET /repos/{o}/{r}/releases/assets/{id}` + `Accept: application/octet-stream`
+- `api.github.com` 未鉴权会 403 限流，任何请求都要带 token
+- `Read`/部分 `Grep`/`Bash` 会随机返回 `SENSITIVE_APPROVAL=TIMED_OUT`（重试常成功）→ 用简单 pattern 的精准 Grep 代替整文件 Read，最终以 CI 结果为准
+
+## 性能约定（列表页）
+- 列表页派生数据（过滤结果 / 标签集合 / 各筛选计数）必须**一次算完并缓存**，禁止在 `body` 里写会重复计算的计算属性
+- 输入类过滤一律加防抖（现为 180ms）
+- 页面进入用 `loadIfStale(maxAge: 20)`，切 Tab 不重复请求
+- 新增列表页应复用 `ListCache`（`QingLong/Core/App/ListCache.swift`）做进程内缓存：`init()` 里先命中缓存再后台刷新；切换服务器/退出登录时清空
+- 行内标签不要用 `WrapHStack`（FlowLayout 每行都要测量）→ 用单行 `HStack` + 前 N 个 + `+N` 溢出
+
