@@ -51,9 +51,16 @@ extension Endpoint {
     static func get(
         _ path: String,
         query: [String: String?] = [:],
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        timeout: TimeInterval? = nil
     ) -> Endpoint {
-        Endpoint(path: path, method: .get, query: query, requiresAuth: requiresAuth)
+        Endpoint(
+            path: path,
+            method: .get,
+            query: query,
+            requiresAuth: requiresAuth,
+            timeout: timeout
+        )
     }
 
     static func post<T: Encodable>(
@@ -161,7 +168,8 @@ enum JSONCoder {
         }
     }
 
-    private static func describe(_ error: DecodingError) -> String {
+    /// 把 `DecodingError` 转成带字段路径的中文说明（也供后台线程解码复用）
+    static func describe(_ error: DecodingError) -> String {
         switch error {
         case .keyNotFound(let key, let context):
             return "缺少字段 `\(key.stringValue)`（\(context.codingPath.map(\.stringValue).joined(separator: "."))）"

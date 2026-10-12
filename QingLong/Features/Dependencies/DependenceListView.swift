@@ -22,9 +22,10 @@ final class DependenceListViewModel: ObservableObject {
     /// 否则每次渲染（含 4 秒轮询触发的刷新）都要重新过滤并扫描全表
     @Published private(set) var filtered: [QLDependence] = []
     @Published private(set) var hasBusy: Bool = false
+    /// 各类型的数量：筛选栏要显示，预先算好，别放进 body 里每次渲染都重算
+    @Published private(set) var typeCounts: [DependenceType: Int] = [:]
 
     private var searchTask: Task<Void, Never>?
-    private var lastLoadedAt: Date?
 
     init() {
         items = ListCache.dependences
@@ -44,11 +45,24 @@ final class DependenceListViewModel: ObservableObject {
     private func recompute() {
         filtered = items.filtered(type: typeFilter).search(keyword)
         hasBusy = items.contains(where: \.isBusy)
+        var counts: [DependenceType: Int] = [:]
+        for item in items { counts[item.typeValue, default: 0] += 1 }
+        typeCounts = counts
     }
 
-    /// 进入页面时刷新：短时间内已加载过就跳过，避免切 Tab 触发整表重建
-    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
-        if !items.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+    /// 进入页面时刷新。
+    ///
+    /// `/api/dependencies` 在面板侧非常慢（后端每次都会逐条执行 shell 命令探测
+    /// 安装状态，并把每条依赖的完整安装日志一起返回），所以这里刻意「能不发就不发」：
+    /// 命中缓存就直接用，只有超过 `maxAge` 才在后台静默刷新（不闪 loading）。
+    /// 想立刻拿到最新数据时下拉刷新即可。
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 300) async {
+        if !items.isEmpty {
+            if let last = ListCache.lastLoaded(.dependences),
+               Date().timeIntervalSince(last) < maxAge {
+                return
+            }
+            await load(session: session, silent: true)
             return
         }
         await load(session: session)
@@ -58,13 +72,17 @@ final class DependenceListViewModel: ObservableObject {
         if !silent, case .idle = state { state = .loading }
         do {
             items = try await DependenceService.list()
-            lastLoadedAt = Date()
             ListCache.store(dependences: items)
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
             if apiError == .cancelled { return }
             if apiError.isUnauthorized { session.handle(error); return }
+            // 已经有缓存内容时不要把整页换成错误页，只提示一下
+            if !items.isEmpty {
+                session.handle(error)
+                return
+            }
             state = .failed(apiError.localizedDescription)
         }
     }
@@ -111,9 +129,11 @@ struct DependenceListView: View {
             .refreshable { await viewModel.load(session: session) }
             .task {
                 await viewModel.loadIfStale(session: session)
-                // 有进行中的安装 / 卸载任务时，自动轮询刷新
+                // 有进行中的安装 / 卸载任务时自动轮询刷新；
+                // 空闲时降频，避免无谓唤醒。
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    let interval: UInt64 = viewModel.hasBusy ? 4_000_000_000 : 15_000_000_000
+                    try? await Task.sleep(nanoseconds: interval)
                     if Task.isCancelled { break }
                     guard viewModel.hasBusy else { continue }
                     await viewModel.load(session: session, silent: true)
@@ -141,37 +161,48 @@ struct DependenceListView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch viewModel.state {
-        case .loading where viewModel.items.isEmpty:
-            LoadingView(text: "加载依赖列表…")
-        case .failed(let message) where viewModel.items.isEmpty:
-            EmptyStateView(
-                symbol: "wifi.exclamationmark",
-                title: "加载失败",
-                message: message,
-                actionTitle: "重试"
-            ) { Task { await viewModel.load(session: session) } }
-        default:
-            VStack(spacing: 0) {
-                filterBar
-                if viewModel.filtered.isEmpty {
-                    ScrollView {
-                        EmptyStateView(
-                            symbol: viewModel.items.isEmpty ? "cube.box" : "magnifyingglass",
-                            title: viewModel.items.isEmpty ? "还没有依赖" : "没有匹配的依赖",
-                            message: viewModel.items.isEmpty
-                                ? "依赖用于给脚本提供第三方库，例如 requests、axios 等。"
-                                : "换个关键字或类型试试。",
-                            actionTitle: viewModel.items.isEmpty ? "添加依赖" : nil
-                        ) {
-                            newName = ""
-                            showsAdd = true
-                        }
-                    }
-                } else {
-                    list
+        // 无论加载状态如何，先把筛选栏渲染出来。
+        // 依赖接口在面板侧可能要好几秒，整页被 loading 顶掉会让「打开依赖」感觉很卡；
+        // 有了磁盘缓存之后通常能直接看到上次的数据。
+        VStack(spacing: 0) {
+            filterBar
+            contentBody
+        }
+    }
+
+    @ViewBuilder
+    private var contentBody: some View {
+        if viewModel.items.isEmpty, case .loading = viewModel.state {
+            VStack {
+                Spacer(minLength: 0)
+                LoadingView(text: "正在同步依赖列表…")
+                Spacer(minLength: 0)
+            }
+        } else if viewModel.items.isEmpty, case .failed(let message) = viewModel.state {
+            ScrollView {
+                EmptyStateView(
+                    symbol: "wifi.exclamationmark",
+                    title: "加载失败",
+                    message: message,
+                    actionTitle: "重试"
+                ) { Task { await viewModel.load(session: session) } }
+            }
+        } else if viewModel.filtered.isEmpty {
+            ScrollView {
+                EmptyStateView(
+                    symbol: viewModel.items.isEmpty ? "cube.box" : "magnifyingglass",
+                    title: viewModel.items.isEmpty ? "还没有依赖" : "没有匹配的依赖",
+                    message: viewModel.items.isEmpty
+                        ? "依赖用于给脚本提供第三方库，例如 requests、axios 等。"
+                        : "换个关键字或类型试试。",
+                    actionTitle: viewModel.items.isEmpty ? "添加依赖" : nil
+                ) {
+                    newName = ""
+                    showsAdd = true
                 }
             }
+        } else {
+            list
         }
     }
 
@@ -188,7 +219,7 @@ struct DependenceListView: View {
                 ForEach(DependenceType.allCases, id: \.self) { item in
                     FilterChip(
                         title: item.title,
-                        count: viewModel.items.filter { $0.typeValue == item }.count,
+                        count: viewModel.typeCounts[item] ?? 0,
                         isSelected: viewModel.typeFilter == item
                     ) {
                         viewModel.typeFilter = viewModel.typeFilter == item ? nil : item
@@ -409,7 +440,8 @@ struct DependenceLogView: View {
             await refresh()
             pollTask = Task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    let interval: UInt64 = item.isBusy ? 3_000_000_000 : 15_000_000_000
+                    try? await Task.sleep(nanoseconds: interval)
                     if Task.isCancelled { break }
                     guard item.isBusy else { continue }
                     await refresh()

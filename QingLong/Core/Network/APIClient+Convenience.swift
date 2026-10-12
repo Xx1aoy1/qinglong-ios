@@ -34,7 +34,7 @@ extension APIClient {
         as type: T.Type = T.self
     ) async throws -> T {
         let data = try await download(endpoint)
-        let value = try JSONCoder.decode(T.self, from: data)
+        let value = try await APIClient.decodeOffMain(T.self, from: data)
         if value.code == 401 {
             onUnauthorized?()
             throw APIError.unauthorized(value.message)

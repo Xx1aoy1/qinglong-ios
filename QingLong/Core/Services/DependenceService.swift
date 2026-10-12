@@ -14,6 +14,8 @@ enum DependenceService {
         type: DependenceType? = nil,
         status: String? = nil
     ) async throws -> [QLDependence] {
+        // 这个接口在面板侧很慢：后端每次都会先逐条执行 shell 命令探测安装状态
+        // （`refreshInstalledStatuses`，nodejs/python3 全量），所以超时给宽松一些。
         try await APIClient.shared.sendArray(
             Endpoint.get(
                 basePath,
@@ -21,7 +23,8 @@ enum DependenceService {
                     "searchValue": searchValue,
                     "type": type.map { String($0.rawValue) },
                     "status": status
-                ]
+                ],
+                timeout: 60
             ),
             as: QLDependence.self
         )

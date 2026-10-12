@@ -12,6 +12,8 @@
 ![License](https://img.shields.io/badge/License-MIT-2BD4BC)
 ![Dependencies](https://img.shields.io/badge/third--party%20deps-0-12B7A8)
 
+**中文** · [English](README.en.md)
+
 </div>
 
 ---
@@ -124,7 +126,7 @@ CI 会完成构建 → 校验包结构 → 创建 GitHub Release 并附上 `Qing
 │   │   ├── RootView.swift
 │   │   └── AppSession.swift        # 登录态 / 多服务器 / Toast
 │   ├── Core/
-│   │   ├── App/                    # AppInfo / DateFormatting
+│   │   ├── App/                    # AppInfo / DateFormatting / ListCache（列表缓存）
 │   │   ├── Auth/                   # KeychainStore / ServerConfig
 │   │   ├── Models/                 # 全部数据模型（容错解码）
 │   │   ├── Network/                # APIClient / Endpoint / QLResponse / Multipart
@@ -161,6 +163,17 @@ CI 会完成构建 → 校验包结构 → 创建 GitHub Release 并附上 `Qing
 - **容错解码**：所有面板实体均手写 `init(from:)` 逐字段 `try?` 容错，后端字段缺失不会导致整页崩溃
 - **日志增量跟随**：按 `nextOffset` 递增拉取，`truncated` 时自动重置，超过 2 MB 自动截尾保留 1 MB，控制内存占用
 - **iOS 15 兼容**：`FlowLayout` 加 `@available(iOS 16)` 分支；所有 `alert` + `TextField` 场景使用自研 `PromptSheet` 组件替代
+
+## 性能说明
+
+青龙面板上可能有几百条任务，而且面板自身的部分接口本身就很重。为了让界面保持跟手，客户端做了这些处理：
+
+- **列表缓存（内存 + 磁盘）**：`ListCache` 让列表页先用上一次的结果渲染，切 Tab 秒开，冷启动也不再白屏等请求；切换服务器或退出登录时清空。
+- **解码放到后台线程**：`GET /api/dependencies` 会把每条依赖的**完整安装日志**一起返回（后端 `DependenceModel.findAll()` 含 `log` JSON 列），并且每次请求都会逐条执行 shell 命令探测安装状态（`refreshInstalledStatuses`）。这种数 MB 的响应一律在后台队列解码，不占主线程。
+- **派生数据一次算完**：筛选结果、标签集合、各筛选计数统一一次遍历算好并缓存，不再随着 SwiftUI 每次渲染重复计算。
+- **搜索防抖 180ms**：输入过程中不会每敲一个字就重排整个列表。
+- **stale-while-revalidate**：进入页面先用缓存，后台静默刷新，既不出 loading 也不会反复触发 `/api/dependencies` 这类重接口。
+- **行渲染更轻**：标签用单行 `HStack` + `+N` 溢出计数替代自动换行布局，滚动时每行少一次测量。
 
 ## 与官方的关系
 

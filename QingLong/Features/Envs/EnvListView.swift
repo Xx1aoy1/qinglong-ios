@@ -88,9 +88,8 @@ final class EnvListViewModel: ObservableObject {
 
     var disabledCount: Int { refreshDerivedIfNeeded(); return memoDisabled }
 
-    private var lastLoadedAt: Date?
-
-    /// 页面重建时先用进程内缓存把内容显示出来，避免白屏 / 长时间 loading
+    /// 页面重建时先用缓存把内容显示出来，避免白屏 / 长时间 loading
+    /// （磁盘缓存让 App 冷启动后第一次进入也能立刻有内容）
     func primeFromCache() {
         guard envs.isEmpty else { return }
         let cached = ListCache.envs
@@ -99,9 +98,15 @@ final class EnvListViewModel: ObservableObject {
         state = .loaded
     }
 
-    /// 进入页面时刷新：短时间内已加载过就跳过，避免每次切 Tab 都重新请求并整表重建
-    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
-        if !envs.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+    /// 进入页面时刷新：短时间内已加载过就跳过，避免每次切 Tab 都重新请求并整表重建。
+    /// 已有缓存但已过期时走静默刷新，页面不会闪一下 loading。
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 60) async {
+        if !envs.isEmpty {
+            if let last = ListCache.lastLoaded(.envs),
+               Date().timeIntervalSince(last) < maxAge {
+                return
+            }
+            await load(session: session, silent: true)
             return
         }
         await load(session: session)
@@ -111,13 +116,17 @@ final class EnvListViewModel: ObservableObject {
         if !silent, case .idle = state { state = .loading }
         do {
             envs = try await EnvService.list()
-            lastLoadedAt = Date()
             ListCache.store(envs: envs)
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
             if apiError == .cancelled { return }
             if apiError.isUnauthorized { session.handle(error); return }
+            // 已有缓存内容时不要把整页换成错误页，只提示一下
+            if !envs.isEmpty {
+                session.handle(error)
+                return
+            }
             state = .failed(apiError.localizedDescription)
         }
     }
@@ -250,35 +259,45 @@ struct EnvListView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch viewModel.state {
-        case .loading where viewModel.envs.isEmpty:
-            LoadingView(text: "加载环境变量…")
-        case .failed(let message) where viewModel.envs.isEmpty:
-            EmptyStateView(
-                symbol: "wifi.exclamationmark",
-                title: "加载失败",
-                message: message,
-                actionTitle: "重试"
-            ) { Task { await viewModel.load(session: session) } }
-        default:
-            VStack(spacing: 0) {
-                filterBar
-                if viewModel.filtered.isEmpty {
-                    ScrollView {
-                        EmptyStateView(
-                            symbol: viewModel.envs.isEmpty ? "shippingbox" : "magnifyingglass",
-                            title: viewModel.envs.isEmpty ? "还没有环境变量" : "没有匹配的变量",
-                            message: viewModel.envs.isEmpty
-                                ? "环境变量用于存放账号、Cookie 等脚本运行时需要的配置。"
-                                : "试试更换关键字或标签。",
-                            actionTitle: viewModel.envs.isEmpty ? "新建变量" : nil
-                        ) { creating = true }
-                    }
-                } else {
-                    list
-                }
-                if viewModel.isMultiSelecting { batchBar }
+        // 先把筛选栏渲染出来：首次加载（没有缓存）时只有下半部分在转圈，
+        // 标题栏与筛选栏立即可见，不会有整页被 loading 顶掉的"卡一下"。
+        VStack(spacing: 0) {
+            filterBar
+            contentBody
+            if viewModel.isMultiSelecting { batchBar }
+        }
+    }
+
+    @ViewBuilder
+    private var contentBody: some View {
+        if viewModel.envs.isEmpty, case .loading = viewModel.state {
+            VStack {
+                Spacer(minLength: 0)
+                LoadingView(text: "正在同步环境变量…")
+                Spacer(minLength: 0)
             }
+        } else if viewModel.envs.isEmpty, case .failed(let message) = viewModel.state {
+            ScrollView {
+                EmptyStateView(
+                    symbol: "wifi.exclamationmark",
+                    title: "加载失败",
+                    message: message,
+                    actionTitle: "重试"
+                ) { Task { await viewModel.load(session: session) } }
+            }
+        } else if viewModel.filtered.isEmpty {
+            ScrollView {
+                EmptyStateView(
+                    symbol: viewModel.envs.isEmpty ? "shippingbox" : "magnifyingglass",
+                    title: viewModel.envs.isEmpty ? "还没有环境变量" : "没有匹配的变量",
+                    message: viewModel.envs.isEmpty
+                        ? "环境变量用于存放账号、Cookie 等脚本运行时需要的配置。"
+                        : "试试更换关键字或标签。",
+                    actionTitle: viewModel.envs.isEmpty ? "新建变量" : nil
+                ) { creating = true }
+            }
+        } else {
+            list
         }
     }
 

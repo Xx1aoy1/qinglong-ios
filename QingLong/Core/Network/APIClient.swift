@@ -186,6 +186,30 @@ final class APIClient {
         return (data, http)
     }
 
+    // MARK: - 解码
+
+    /// 在后台线程解码。
+    ///
+    /// `/api/dependencies` 这类接口一次会返回数 MB（后端把每条依赖的完整安装日志
+    /// 一起返回），如果在主线程上解码，几 MB 的 JSON 足以造成明显掉帧甚至卡死。
+    /// 所有响应统一走这里解码。
+    static func decodeOffMain<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                // JSONDecoder 不是线程安全的，这里用独立实例，
+                // 避免与主线程共用的 JSONCoder.decoder 互相干扰。
+                let decoder = JSONDecoder()
+                do {
+                    continuation.resume(returning: try decoder.decode(type, from: data))
+                } catch let error as DecodingError {
+                    continuation.resume(throwing: APIError.decoding(JSONCoder.describe(error)))
+                } catch {
+                    continuation.resume(throwing: APIError.decoding(error.localizedDescription))
+                }
+            }
+        }
+    }
+
     // MARK: - 高层 API
 
     /// 解码外壳但不做业务 code 校验（供登录等需要读取特殊 code 的场景使用）
@@ -194,7 +218,7 @@ final class APIClient {
         as type: T.Type = T.self
     ) async throws -> QLResponse<T> {
         let (data, _) = try await transport(endpoint)
-        return try JSONCoder.decode(QLResponse<T>.self, from: data)
+        return try await Self.decodeOffMain(QLResponse<T>.self, from: data)
     }
 
     /// 要求 code == 200 且返回 data
@@ -232,7 +256,7 @@ final class APIClient {
     @discardableResult
     func sendMessage(_ endpoint: Endpoint) async throws -> String? {
         let (data, _) = try await transport(endpoint)
-        let envelope = try JSONCoder.decode(QLMessage.self, from: data)
+        let envelope = try await Self.decodeOffMain(QLMessage.self, from: data)
         if envelope.code == 401 {
             onUnauthorized?()
             throw APIError.unauthorized(envelope.message)
@@ -247,9 +271,11 @@ final class APIClient {
     func download(_ endpoint: Endpoint) async throws -> Data {
         let (data, http) = try await transport(endpoint)
 
-        // 出错时后端会返回 JSON 而不是文件
+        // 出错时后端会返回 JSON 而不是文件；正常文件（脚本 / 日志）可能很大，
+        // 所以只在响应体很小时才尝试按 JSON 解析。
         let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? ""
         if contentType.contains("application/json"),
+           data.count < 262_144,
            let envelope = try? JSONCoder.decode(QLMessage.self, from: data),
            !envelope.isSuccess {
             throw APIError.business(code: envelope.code, message: envelope.message)

@@ -43,7 +43,6 @@ final class CronListViewModel: ObservableObject {
     @Published private(set) var filterCounts: [Filter: Int] = [:]
 
     private var searchTask: Task<Void, Never>?
-    private var lastLoadedAt: Date?
 
     init() {
         // 命中进程内缓存时先直接出内容，随后由页面静默刷新
@@ -116,7 +115,6 @@ final class CronListViewModel: ObservableObject {
         if !silent, case .idle = state { state = .loading }
         do {
             crons = try await CronService.list()
-            lastLoadedAt = Date()
             ListCache.store(crons: crons)
             state = .loaded
         } catch {
@@ -126,15 +124,26 @@ final class CronListViewModel: ObservableObject {
                 session.handle(error)
                 return
             }
+            // 已有缓存内容时不要把整页换成错误页，只提示一下
+            if !crons.isEmpty {
+                session.handle(error)
+                return
+            }
             state = .failed(apiError.localizedDescription)
         }
     }
 
     /// 进入页面时的刷新：短时间内已经加载过就跳过，
     /// 避免每次切 Tab 都重新请求并整表重建（这是"卡一下"的主要来源之一）。
+    /// 已有缓存但已过期时走静默刷新，页面不会闪一下 loading。
     /// 下拉刷新与操作后的刷新仍走 load(...)，不受影响。
-    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
-        if !crons.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 60) async {
+        if !crons.isEmpty {
+            if let last = ListCache.lastLoaded(.crons),
+               Date().timeIntervalSince(last) < maxAge {
+                return
+            }
+            await load(session: session, silent: true)
             return
         }
         await load(session: session)
@@ -245,40 +254,48 @@ struct CronListView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch viewModel.state {
-        case .loading where viewModel.crons.isEmpty:
-            LoadingView(text: "加载任务列表…")
+        // 先把筛选栏渲染出来：首次加载（没有缓存）时只有下半部分在转圈，
+        // 标题栏与筛选栏立即可见，不会有整页被 loading 顶掉的"卡一下"。
+        VStack(spacing: 0) {
+            filterBar
+            contentBody
+        }
+    }
 
-        case .failed(let message) where viewModel.crons.isEmpty:
-            EmptyStateView(
-                symbol: "wifi.exclamationmark",
-                title: "加载失败",
-                message: message,
-                actionTitle: "重试"
-            ) {
-                Task { await viewModel.load(session: session) }
+    @ViewBuilder
+    private var contentBody: some View {
+        if viewModel.crons.isEmpty, case .loading = viewModel.state {
+            VStack {
+                Spacer(minLength: 0)
+                LoadingView(text: "正在同步任务列表…")
+                Spacer(minLength: 0)
             }
-
-        default:
-            VStack(spacing: 0) {
-                filterBar
-                if viewModel.filtered.isEmpty {
-                    ScrollView {
-                        EmptyStateView(
-                            symbol: viewModel.crons.isEmpty ? "clock.badge.questionmark" : "magnifyingglass",
-                            title: viewModel.crons.isEmpty ? "还没有定时任务" : "没有匹配的任务",
-                            message: viewModel.crons.isEmpty
-                                ? "点击右上角「+」创建第一条任务，或先添加订阅自动同步脚本。"
-                                : "试试更换筛选条件或关键字。",
-                            actionTitle: viewModel.crons.isEmpty ? "新建任务" : nil
-                        ) {
-                            showsCreate = true
-                        }
-                    }
-                } else {
-                    list
+        } else if viewModel.crons.isEmpty, case .failed(let message) = viewModel.state {
+            ScrollView {
+                EmptyStateView(
+                    symbol: "wifi.exclamationmark",
+                    title: "加载失败",
+                    message: message,
+                    actionTitle: "重试"
+                ) {
+                    Task { await viewModel.load(session: session) }
                 }
             }
+        } else if viewModel.filtered.isEmpty {
+            ScrollView {
+                EmptyStateView(
+                    symbol: viewModel.crons.isEmpty ? "clock.badge.questionmark" : "magnifyingglass",
+                    title: viewModel.crons.isEmpty ? "还没有定时任务" : "没有匹配的任务",
+                    message: viewModel.crons.isEmpty
+                        ? "点击右上角「+」创建第一条任务，或先添加订阅自动同步脚本。"
+                        : "试试更换筛选条件或关键字。",
+                    actionTitle: viewModel.crons.isEmpty ? "新建任务" : nil
+                ) {
+                    showsCreate = true
+                }
+            }
+        } else {
+            list
         }
     }
 
