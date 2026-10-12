@@ -19,6 +19,7 @@ struct AboutView: View {
                 header
                 capabilityCard
                 repositoryCard
+                sponsorCard
                 installCard
                 disclaimerCard
             }
@@ -166,6 +167,41 @@ struct AboutView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
+    }
+
+    // MARK: - 支持开发
+
+    private var sponsorCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
+            SectionHeader(title: "支持开发", subtitle: "如果这个 App 帮到了你")
+
+            HStack(alignment: .center, spacing: Theme.Spacing.large) {
+                Image("SponsorQR")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 132, height: 132)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                            .stroke(Theme.stroke, lineWidth: 0.6)
+                    )
+
+                VStack(alignment: .leading, spacing: Theme.Spacing.small) {
+                    Text("开发不易，感谢赞助支持")
+                        .font(Theme.Font.callout.weight(.semibold))
+                        .foregroundColor(Theme.textPrimary)
+
+                    Text("扫码请作者喝杯咖啡，每一个 Star 和一份赞助都是持续更新的动力 ☕️")
+                        .font(Theme.Font.caption)
+                        .foregroundColor(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+        }
+        .qlCard()
     }
 
     // MARK: - 安装说明

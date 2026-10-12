@@ -146,7 +146,7 @@ CI then builds the app, verifies the bundle structure, and creates a GitHub Rele
 │   │   ├── Logs/                   # Log console / log browser
 │   │   └── Settings/               # Panel settings / notifications / security / open API / command runner / backup / system logs / about
 │   └── Resources/
-│       └── Assets.xcassets         # AppIcon / AccentColor / LaunchBackground
+│       └── Assets.xcassets         # AppIcon / AccentColor / LaunchBackground / SponsorQR
 ├── Scripts/
 │   ├── build_ipa.sh                # One-shot macOS build
 │   └── generate_assets.py          # Icon generation
@@ -178,6 +178,14 @@ QingLong panels can hold hundreds of tasks, and a few of the panel's own endpoin
 ## Relationship to the Upstream Project
 
 This is a **third-party client** for the QingLong panel. It is not affiliated with, partnered with, or endorsed by [whyour/qinglong](https://github.com/whyour/qinglong) or its author. All data displayed in the app comes from the panel service you deploy yourself; the client collects and uploads no account information.
+
+## Support the Developer
+
+This app is free, open source, and built in spare time. If it helps you, consider buying the developer a coffee — every star and every donation keeps the project going. ☕️
+
+<p align="center">
+  <img src="docs/sponsor-qr.png" width="260" alt="Sponsor QR code">
+</p>
 
 ## License
 

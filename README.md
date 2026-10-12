@@ -146,7 +146,7 @@ CI 会完成构建 → 校验包结构 → 创建 GitHub Release 并附上 `Qing
 │   │   ├── Logs/                   # 日志控制台 / 日志浏览器
 │   │   └── Settings/               # 面板设置 / 通知 / 账号安全 / 开放接口 / 命令调试 / 数据备份 / 系统日志 / 关于
 │   └── Resources/
-│       └── Assets.xcassets         # AppIcon / AccentColor / LaunchBackground
+│       └── Assets.xcassets         # AppIcon / AccentColor / LaunchBackground / SponsorQR
 ├── Scripts/
 │   ├── build_ipa.sh                # macOS 一键构建
 │   └── generate_assets.py          # 图标生成
@@ -178,6 +178,14 @@ CI 会完成构建 → 校验包结构 → 创建 GitHub Release 并附上 `Qing
 ## 与官方的关系
 
 本项目是青龙面板的**第三方客户端**，与 [whyour/qinglong](https://github.com/whyour/qinglong) 官方及其作者无任何隶属、合作或背书关系。应用内所有数据均来自你自己部署的面板服务，客户端不收集、不上传任何账号信息。
+
+## 赞助支持
+
+开发不易，感谢赞助支持 🧡 如果这个 App 帮到了你，可以扫码请作者喝杯咖啡，每一个 Star 和一份赞助都是持续更新的动力。
+
+<p align="center">
+  <img src="docs/sponsor-qr.png" width="260" alt="赞助二维码">
+</p>
 
 ## License
 

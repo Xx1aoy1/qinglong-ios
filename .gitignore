@@ -44,3 +44,6 @@ secrets.env
 .runs.json
 .poll_ci.sh
 *.local
+
+# ---------- 本地生成物 ----------
+generated-images/
