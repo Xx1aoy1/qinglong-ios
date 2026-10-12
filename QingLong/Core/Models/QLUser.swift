@@ -43,6 +43,8 @@ struct LoginResult: Codable, Equatable {
 }
 
 /// `GET /api/user/login-log`
+/// 青龙 2.22+ 直接返回扁平的 info 对象数组（无 id/type/info 包裹），
+/// 更早版本返回 `{ id, type, info }`，两种形态都兼容。
 struct LoginLogItem: Codable, Identifiable, Equatable {
     var id: Int?
     var type: String?
@@ -54,6 +56,34 @@ struct LoginLogItem: Codable, Identifiable, Equatable {
         var ip: String?
         var platform: String?
         var status: Int?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, type, info, timestamp, address, ip, platform, status
+    }
+
+    init(id: Int? = nil, type: String? = nil, info: Info?) {
+        self.id = id
+        self.type = type
+        self.info = info
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try? container.decodeIfPresent(Int.self, forKey: .id)
+        type = try? container.decodeIfPresent(Vfjxct.self, forKey: .type)
+        if let nested = try? container.decodeIfPresent(Info.self, forKey: .info) {
+            info = nested
+            return
+        }
+        // 扁平结构
+        info = Info(
+            timestamp: try? container.decodeIfPresent(Int.self, forKey: .timestamp),
+            address: try? container.decodeIfPresent(Vfjxct.self, forKey: .address),
+            ip: try? container.decodeIfPresent(Vfjxct.self, forKey: .ip),
+            platform: try? container.decodeIfPresent(Vfjxct.self, forKey: .platform),
+            status: try? container.decodeIfPresent(Int.self, forKey: .status)
+        )
     }
 
     var isSuccess: Bool { info?.status == 0 }

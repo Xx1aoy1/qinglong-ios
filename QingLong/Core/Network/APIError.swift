@@ -46,11 +46,7 @@ enum APIError: LocalizedError, Equatable {
             default: return "服务器返回异常（HTTP \(status)）"
             }
         case .decoding(let detail):
-            #if DEBUG
-            return "数据解析失败：\(detail)"
-            #else
-            return "数据解析失败，可能面板版本不兼容"
-            #endif
+            return "数据解析失败（\(detail)），可能与面板版本不兼容"
         case .network(let detail):
             return detail
         case .cancelled:

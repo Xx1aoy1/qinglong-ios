@@ -38,15 +38,38 @@ struct CronInstanceInfo: Codable, Identifiable, Hashable {
     }
 }
 
+/// `GET /api/crons` 的列表外壳。
+/// 青龙 2.22+ 返回分页对象 `{ data: [...], total: n }`，更早版本返回纯数组，
+/// 这里两种形态都兼容。
+struct CronListPage: Decodable {
+    let data: [QLCron]
+    let total: Int?
+
+    private enum CodingKeys: String, CodingKey { case data, total }
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if let list = try? single.decode([QLCron].self) {
+            data = list
+            total = list.count
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = (try? container.decode([QLCron].self, forKey: .data)) ?? []
+        total = try? container.decodeIfPresent(Int.self, forKey: .total)
+    }
+}
+
 enum CronService {
 
     private static let path = "/api/crons"
 
     static func list(searchValue: String? = nil) async throws -> [QLCron] {
-        try await APIClient.shared.sendArray(
+        let page = try await APIClient.shared.send(
             Endpoint.get(path, query: ["searchValue": searchValue]),
-            as: QLCron.self
+            as: CronListPage.self
         )
+        return page.data
     }
 
     static func detail(id: Int) async throws -> QLCron {
