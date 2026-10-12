@@ -69,11 +69,14 @@ jobs:
           echo "Resolved version: $VERSION"
 
       - name: Install XcodeGen & ldid
+        env:
+          # 关闭 Homebrew 自动更新，runner 上 `brew update` 常需数分钟
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
         run: |
           set -e
-          brew update --quiet || true
-          brew install xcodegen || true
-          brew install ldid || true
+          brew install xcodegen ldid
           xcodegen --version
           ldid -v 2>&1 | head -n 3 || true
 
