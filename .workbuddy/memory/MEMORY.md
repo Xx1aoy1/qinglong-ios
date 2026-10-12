@@ -2,7 +2,7 @@
 
 ## 仓库与发布
 - 仓库：https://github.com/Xx1aoy1/qinglong-ios （账号 Xx1aoy1，token 权限 repo + workflow）
-- **只发布到 GitHub，不引入镜像仓库或任何其他镜像渠道**（用户 2026-10-12 明确要求）
+- **仓库内任何文件与提交信息都只提 GitHub，不出现其他代码托管平台的名称**（用户 2026-10-12 明确要求）
 - 发布方式：推 `v*` tag → CI（`build` + `release` 两个 job）自动构建未签名 arm64 IPA 并创建 GitHub Release
 - 产物目标：TrollStore（巨魔）安装，无需任何证书
 
@@ -27,7 +27,18 @@
 ## 性能约定（列表页）
 - 列表页派生数据（过滤结果 / 标签集合 / 各筛选计数）必须**一次算完并缓存**，禁止在 `body` 里写会重复计算的计算属性
 - 输入类过滤一律加防抖（现为 180ms）
-- 页面进入用 `loadIfStale(maxAge: 20)`，切 Tab 不重复请求
-- 新增列表页应复用 `ListCache`（`QingLong/Core/App/ListCache.swift`）做进程内缓存：`init()` 里先命中缓存再后台刷新；切换服务器/退出登录时清空
+- 页面进入用 `loadIfStale(maxAge:)`，切 Tab 不重复请求；**有过期缓存时走 `load(silent: true)`**，不要整页闪 loading
+- 新增列表页应复用 `ListCache`（`QingLong/Core/App/ListCache.swift`）做**内存 + 磁盘**缓存：`init()` 先命中缓存再后台刷新；用 `ListCache.lastLoaded(.xxx)` 判断新鲜度（不要用 ViewModel 实例属性存时间戳，换页面就丢了）；切换服务器/退出登录时清空
 - 行内标签不要用 `WrapHStack`（FlowLayout 每行都要测量）→ 用单行 `HStack` + 前 N 个 + `+N` 溢出
+- 首次加载时**筛选栏/title 先渲染**，只在内容区域转圈（`content` = filterBar + contentBody 两段）
+- 有缓存内容时请求失败只弹 Toast，不要把整页换成错误页
+- 轮询类刷新空闲时降频（≥15s），只在 busy 时密集轮询
+
+## 已知的重接口（面板侧，改不动）
+- `GET /api/dependencies`：返回体含**每条依赖的完整安装日志**（`DependenceModel.findAll()` 带 `log` JSON 列，单条可达 MB），且每次请求都 `refreshInstalledStatuses()` 逐条跑 shell 探测（并发 5）→ 秒级耗时、响应数 MB。客户端策略：缓存 5 分钟、静默刷新、落盘前剥掉 `log`、超时放宽到 60s。
+- 所有响应一律经 `APIClient.decodeOffMain` 在后台队列解码（数 MB JSON 在主线程解码会卡死）；该函数用**独立 JSONDecoder 实例**，因为 `JSONCoder.decoder` 是共享静态实例、非线程安全。
+
+## 显示层陷阱（务必牢记）
+- `String` 在某些工具输出里会被**替换显示**成 `Vfjxct`（CI 能编译过即证明是假象）。**绝不能按显示内容改代码**，必须 `open(p,'rb')` 做字节扫描确认。
+
 
