@@ -80,10 +80,21 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml --use-cache
 
-      - name: Build (unsigned, arm64)
+      - name: Resolve repository URLs
         env:
-          QL_REPOSITORY_URL: https://github.com/${{ github.repository }}
-          QL_MIRROR_URL: https://镜像仓库.com/${{ vars.MIRROR_OWNER || 'unknown' }}/${{ vars.MIRROR_REPO || 'unknown' }}
+          VARS_MIRROR_OWNER: ${{ vars.MIRROR_OWNER }}
+          VARS_MIRROR_REPO: ${{ vars.MIRROR_REPO }}
+        run: |
+          set -e
+          echo "QL_REPOSITORY_URL=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_ENV"
+          if [ -n "$VARS_MIRROR_OWNER" ] && [ -n "$VARS_MIRROR_REPO" ]; then
+            echo "QL_MIRROR_URL=https://镜像仓库.com/${VARS_MIRROR_OWNER}/${VARS_MIRROR_REPO}" >> "$GITHUB_ENV"
+            echo "镜像仓库 URL: https://镜像仓库.com/${VARS_MIRROR_OWNER}/${VARS_MIRROR_REPO}"
+          else
+            echo "QL_MIRROR_URL=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build (unsigned, arm64)
         run: |
           set -o pipefail
           xcodebuild \

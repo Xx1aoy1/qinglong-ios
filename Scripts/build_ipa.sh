@@ -22,7 +22,7 @@ VERSION="${VERSION:-$(grep -m1 'MARKETING_VERSION:' project.yml \
   | sed -E 's/.*MARKETING_VERSION:[[:space:]]*"?([^"]*)"?.*/\1/' | tr -d '[:space:]')}"
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
-REPO_URL="${REPO_URL:-https://github.com/your-name/qinglong-ios}"
+REPO_URL="${REPO_URL:-https://github.com/Xx1aoy1/qinglong-ios}"
 MIRROR_URL="${MIRROR_URL:-}"
 
 echo "==> 版本：${VERSION} (build ${BUILD_NUMBER})"

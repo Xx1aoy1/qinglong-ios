@@ -6,7 +6,7 @@
 
 **青龙面板（QingLong）的第三方 iOS 客户端 · SwiftUI 原生实现 · 未签名 IPA 适配 TrollStore**
 
-[![Build Unsigned IPA](https://github.com/OWNER/REPO/actions/workflows/build-ipa.yml/badge.svg)](.github/workflows/build-ipa.yml)
+[![Build Unsigned IPA](https://github.com/Xx1aoy1/qinglong-ios/actions/workflows/build-ipa.yml/badge.svg)](../../actions/workflows/build-ipa.yml)
 ![iOS](https://img.shields.io/badge/iOS-15.0%2B-0FA894)
 ![Swift](https://img.shields.io/badge/Swift-5.5%2B-F05138)
 ![License](https://img.shields.io/badge/License-MIT-2BD4BC)
