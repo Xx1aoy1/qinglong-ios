@@ -1,0 +1,16 @@
+# 统一换行符：源码一律 LF（macOS CI 上的 shell 脚本对 CRLF 敏感）
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ipa binary
+*.tgz binary
+*.gz binary
+*.zip binary
+*.xcassets/** binary
+
+# Xcode 工程由 XcodeGen 生成，不入库
+*.xcodeproj/** -text

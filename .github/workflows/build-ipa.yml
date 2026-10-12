@@ -1,0 +1,248 @@
+name: Build Unsigned IPA
+
+# 在 macOS runner 上编译出「未签名」的 .app，打成 .ipa，供 TrollStore / 巨魔 安装。
+# 推 tag（v*）时自动创建 GitHub Release 并附上 ipa，同时（可选）同步到镜像仓库。
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '手动触发时用于创建 Release 的 tag（留空则只产出 Artifact）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build QingLong.ipa
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select latest stable Xcode
+        run: |
+          set -e
+          echo "== available Xcodes =="
+          ls /Applications | grep -i '^Xcode' || true
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST" ]; then
+            sudo xcode-select -s "$LATEST/Contents/Developer"
+          fi
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve version metadata
+        id: meta
+        run: |
+          set -e
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(grep -m1 'MARKETING_VERSION:' project.yml \
+              | sed -E 's/.*MARKETING_VERSION:[[:space:]]*"?([^"]*)"?.*/\1/' \
+              | tr -d '[:space:]')
+            [ -z "$VERSION" ] && VERSION="0.0.0"
+            VERSION="${VERSION}+${{ github.run_number }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=QingLong-${VERSION}-unsigned" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Install XcodeGen & ldid
+        run: |
+          set -e
+          brew update --quiet || true
+          brew install xcodegen || true
+          brew install ldid || true
+          xcodegen --version
+          ldid -v 2>&1 | head -n 3 || true
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml --use-cache
+
+      - name: Build (unsigned, arm64)
+        env:
+          QL_REPOSITORY_URL: https://github.com/${{ github.repository }}
+          QL_MIRROR_URL: https://镜像仓库.com/${{ vars.MIRROR_OWNER || 'unknown' }}/${{ vars.MIRROR_REPO || 'unknown' }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project QingLong.xcodeproj \
+            -scheme QingLong \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            VALIDATE_PRODUCT=YES \
+            MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
+            QL_REPOSITORY_URL="$QL_REPOSITORY_URL" \
+            QL_MIRROR_URL="$QL_MIRROR_URL" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -e
+          APP="build/Build/Products/Release-iphoneos/QingLong.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::app bundle not found at $APP"
+            find build/Build/Products -maxdepth 3 -print || true
+            exit 1
+          fi
+
+          rm -rf Payload QingLong.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+
+          # 可选：ldid 伪签名（部分 TrollStore 版本对完全未签名的二进制更挑剔）
+          if command -v ldid >/dev/null 2>&1; then
+            ldid -S Payload/QingLong.app/QingLong || true
+            echo "ldid ad-hoc signed."
+          fi
+
+          # IPA 内不允许存在签名残留
+          rm -rf Payload/QingLong.app/_CodeSignature Payload/QingLong.app/embedded.mobileprovision || true
+
+          zip -qry QingLong.ipa Payload
+          ls -lh QingLong.ipa
+
+      - name: Verify IPA
+        run: |
+          set -e
+          echo "== 包结构 =="
+          unzip -l QingLong.ipa | head -n 25
+          echo
+          echo "== 主二进制架构 =="
+          unzip -o -q QingLong.ipa -d .verify
+          file .verify/Payload/QingLong.app/QingLong
+          echo
+          echo "== Info.plist 关键字段 =="
+          plutil -p .verify/Payload/QingLong.app/Info.plist \
+            | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion|CFBundleDisplayName|CFBundleIcons|QLRepositoryURL|QLMirrorURL' || true
+          echo
+          echo "== 图标是否编译进 Assets.car =="
+          ls -la .verify/Payload/QingLong.app/ | grep -E 'Assets.car|AppIcon' || true
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: QingLong.ipa
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload dSYM (for crash symbolication)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: QingLong-dSYM-${{ steps.meta.outputs.version }}
+          path: build/Build/Products/Release-iphoneos/*.dSYM
+          if-no-files-found: ignore
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist
+
+      - name: Rename IPA
+        run: |
+          set -e
+          mv dist/QingLong.ipa "dist/QingLong-${{ needs.build.outputs.version }}.ipa"
+          ls -lh dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
+          name: QingLong iOS ${{ needs.build.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 青龙助手 iOS 客户端 ${{ needs.build.outputs.version }}
+
+            未签名 IPA，适用于 **TrollStore / 巨魔** 环境。
+
+            ### 安装方法
+            1. 下载下方 `QingLong-${{ needs.build.outputs.version }}.ipa` 到设备（或用电脑传到设备）
+            2. 打开 **TrollStore** → `+` / 「Install IPA」 → 选择该 ipa
+            3. 首次启动后添加你的青龙面板地址（例如 `http://192.168.1.10:5700`）并登录
+
+            > 该 IPA 为未签名包，由 TrollStore 在安装时自动签名。请勿使用 AltStore / Sideloadly 等需要证书的工具。
+          files: |
+            dist/*.ipa
+
+  mirror-sync:
+    name: Mirror release to 镜像仓库
+    needs: [build, release]
+    if: ${{ always() && needs.build.result == 'success' && !cancelled() && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check 镜像仓库 token
+        id: check
+        run: |
+          if [ -z "${{ secrets.MIRROR_TOKEN }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::未配置 MIRROR_TOKEN，跳过镜像仓库镜像发布。"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download IPA
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist
+
+      - name: Upload to 镜像仓库 Release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          MIRROR_OWNER: ${{ vars.MIRROR_OWNER }}
+          MIRROR_REPO: ${{ vars.MIRROR_REPO }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -e
+          if [ -z "$MIRROR_OWNER" ] || [ -z "$MIRROR_REPO" ]; then
+            echo "::warning::未配置 MIRROR_OWNER / MIRROR_REPO 仓库变量，跳过。"
+            exit 0
+          fi
+          bash Scripts/publish_mirror.sh

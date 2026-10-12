@@ -1,0 +1,39 @@
+# ---------- macOS / IDE ----------
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.tgz
+
+# ---------- Xcode build output ----------
+build/
+DerivedData/
+Release-iphoneos/
+Payload/
+*.xcarchive
+
+# ---------- XcodeGen 生成物 ----------
+# project.yml 是唯一事实来源，.xcodeproj 由 `xcodegen generate` 生成
+*.xcodeproj/
+*.xcworkspace/
+
+# ---------- Swift Package Manager ----------
+.swiftpm/
+.build/
+Packages/
+Package.resolved
+
+# ---------- 本地私有配置 ----------
+# 用于本地调试的服务器地址等
+LocalConfig.plist
+secrets.env

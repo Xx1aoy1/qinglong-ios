@@ -1,0 +1,87 @@
+name: QingLong
+
+options:
+  bundleIdPrefix: com.qinglong
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+  minimumXcodeGenVersion: "2.35.0"
+
+attributes:
+  ORGANIZATIONNAME: QingLong iOS Client
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_OBJC_ARC: YES
+    GCC_C_LANGUAGE_STANDARD: gnu11
+    CLANG_ENABLE_MODULES: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+
+targets:
+  QingLong:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: QingLong
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_NAME: QingLong
+        PRODUCT_BUNDLE_IDENTIFIER: com.qinglong.mobile
+        INFOPLIST_FILE: Support/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        ENABLE_PREVIEWS: YES
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
+          DEBUG_INFORMATION_FORMAT: dwarf
+          ONLY_ACTIVE_ARCH: YES
+        # Unsigned release build -> packaged as an IPA for TrollStore.
+        # If you want to build to a real device from Xcode with a certificate,
+        # flip CODE_SIGNING_ALLOWED back to YES and set DEVELOPMENT_TEAM.
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_COMPILATION_MODE: wholemodule
+          DEBUG_INFORMATION_FORMAT: "dwarf-with-dsym"
+          ONLY_ACTIVE_ARCH: NO
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
+          EXPANDED_CODE_SIGN_IDENTITY: ""
+
+schemes:
+  QingLong:
+    build:
+      targets:
+        QingLong: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

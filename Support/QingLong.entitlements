@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  默认不使用自定义 entitlements：Release 构建以「未签名」方式产出 .app，
+	  由 TrollStore 在安装时使用 ldid 重新签名并注入其所需权限，兼容性最好。
+
+	  仅当你确实需要额外权限（例如 JIT / 越权文件访问）时，才在
+	  project.yml 的 Release 配置里加上：
+	      CODE_SIGN_ENTITLEMENTS: Support/QingLong.entitlements
+	  并把需要的键补充到下面。
+	-->
+	<key>get-task-allow</key>
+	<false/>
+	<key>application-identifier</key>
+	<string>com.qinglong.mobile</string>
+</dict>
+</plist>
