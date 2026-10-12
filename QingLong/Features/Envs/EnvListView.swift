@@ -34,9 +34,31 @@ final class EnvListViewModel: ObservableObject {
     @Published var isMultiSelecting = false
     @Published var selection: Set<Int> = []
 
-    var labels: [String] { envs.allLabels }
+    // MARK: - 派生数据（记忆化，避免每次渲染都全表过滤 / 排序）
 
-    var filtered: [QLEnv] {
+    private var memoInput: String = ""
+    private var memoSnapshot: [QLEnv] = []
+    private var memoFiltered: [QLEnv] = []
+    private var memoLabels: [String] = []
+    private var memoEnabled: Int = 0
+    private var memoDisabled: Int = 0
+
+    /// 只有「数据变了」或「筛选条件变了」才重算；
+    /// 一次渲染里 filtered 会被读取多次（判空 + 列表），此前每次都全表过滤排序。
+    private func refreshDerivedIfNeeded() {
+        let input = "\(statusFilter.rawValue)|\(selectedLabel ?? "")|\(keyword)"
+        if input == memoInput, memoSnapshot == envs { return }
+
+        var labelSet = Set<String>()
+        var enabled = 0
+        for env in envs {
+            if !env.isDisabled { enabled += 1 }
+            for label in env.labelList { labelSet.insert(label) }
+        }
+        memoLabels = labelSet.sorted()
+        memoEnabled = enabled
+        memoDisabled = envs.count - enabled
+
         var list = envs
         switch statusFilter {
         case .all: break
@@ -46,19 +68,51 @@ final class EnvListViewModel: ObservableObject {
         if let selectedLabel {
             list = list.filter { $0.labelList.contains(selectedLabel) }
         }
-        list = list.search(keyword)
+        let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKeyword.isEmpty {
+            list = list.search(trimmedKeyword)
+        }
         let pinned = list.filter(\.isPinnedValue)
         let others = list.filter { !$0.isPinnedValue }
-        return pinned + others
+        memoFiltered = pinned + others
+
+        memoInput = input
+        memoSnapshot = envs
     }
 
-    var enabledCount: Int { envs.filter { !$0.isDisabled }.count }
-    var disabledCount: Int { envs.filter(\.isDisabled).count }
+    var labels: [String] { refreshDerivedIfNeeded(); return memoLabels }
+
+    var filtered: [QLEnv] { refreshDerivedIfNeeded(); return memoFiltered }
+
+    var enabledCount: Int { refreshDerivedIfNeeded(); return memoEnabled }
+
+    var disabledCount: Int { refreshDerivedIfNeeded(); return memoDisabled }
+
+    private var lastLoadedAt: Date?
+
+    /// 页面重建时先用进程内缓存把内容显示出来，避免白屏 / 长时间 loading
+    func primeFromCache() {
+        guard envs.isEmpty else { return }
+        let cached = ListCache.envs
+        guard !cached.isEmpty else { return }
+        envs = cached
+        state = .loaded
+    }
+
+    /// 进入页面时刷新：短时间内已加载过就跳过，避免每次切 Tab 都重新请求并整表重建
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
+        if !envs.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+            return
+        }
+        await load(session: session)
+    }
 
     func load(session: AppSession, silent: Bool = false) async {
         if !silent, case .idle = state { state = .loading }
         do {
             envs = try await EnvService.list()
+            lastLoadedAt = Date()
+            ListCache.store(envs: envs)
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
@@ -107,7 +161,10 @@ struct EnvListView: View {
             .searchable(text: $viewModel.keyword, prompt: "搜索变量名 / 值 / 备注")
             .toolbar { toolbar }
             .refreshable { await viewModel.load(session: session) }
-            .task { await viewModel.load(session: session) }
+            .task {
+                viewModel.primeFromCache()
+                await viewModel.loadIfStale(session: session)
+            }
             .sheet(isPresented: $creating) {
                 EnvEditView(target: .create).environmentObject(session)
             }
@@ -580,11 +637,17 @@ struct EnvRow: View {
                 }
 
                 if !env.labelList.isEmpty {
-                    WrapHStack(spacing: 5) {
-                        ForEach(env.labelList, id: \.self) { label in
+                    // 单行渲染前 2 个标签 + 溢出计数，避免每行做一次 FlowLayout 换行测量。
+                    HStack(spacing: 5) {
+                        ForEach(Array(env.labelList.prefix(2)), id: \.self) { label in
                             TagChip(text: label)
                         }
+                        if env.labelList.count > 2 {
+                            TagChip(text: "+\(env.labelList.count - 2)", color: Theme.textTertiary)
+                        }
+                        Spacer(minLength: 0)
                     }
+                    .lineLimit(1)
                 }
             }
         }

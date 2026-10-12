@@ -123,6 +123,7 @@ final class AppSession: ObservableObject {
         activate(server: server, token: token)
         user = nil
         systemStatus = nil
+        ListCache.clear()
         if let token, !token.isEmpty {
             phase = .ready
             Task { await refreshAll() }
@@ -230,6 +231,7 @@ final class AppSession: ObservableObject {
             KeychainStore.removeToken(for: server.id)
         }
         APIClient.shared.setToken(nil)
+        ListCache.clear()
         user = nil
         phase = servers.isEmpty ? .needsServer : .needsLogin
         showToast("已退出登录", tone: .info)
@@ -242,6 +244,7 @@ final class AppSession: ObservableObject {
             KeychainStore.removeToken(for: server.id)
         }
         APIClient.shared.setToken(nil)
+        ListCache.clear()
         user = nil
         phase = servers.isEmpty ? .needsServer : .needsLogin
         showToast(reason, tone: .warning)

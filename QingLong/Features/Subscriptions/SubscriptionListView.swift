@@ -247,18 +247,41 @@ struct SubscriptionRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                WrapHStack(spacing: 5) {
-                    TagChip(text: item.typeValue.title, color: Theme.info)
-                    TagChip(text: item.scheduleDescription, color: Theme.brand)
-                    if let branch = item.branch, !branch.isEmpty {
-                        TagChip(text: branch, color: Theme.textSecondary)
+                // 单行渲染：类型 / 定时 / 分支（或自动新增），其余折叠为 +N，
+                // 免去每行一次 FlowLayout 换行测量，滚动更顺。
+                HStack(spacing: 5) {
+                    ForEach(Array(tags.prefix(3)), id: \.self) { tag in
+                        TagChip(text: tag.text, color: tag.color)
                     }
-                    if item.isAutoAddCron {
-                        TagChip(text: "自动新增任务", color: Theme.success)
+                    if tags.count > 3 {
+                        TagChip(text: "+\(tags.count - 3)", color: Theme.textTertiary)
                     }
+                    Spacer(minLength: 0)
                 }
+                .lineLimit(1)
             }
         }
         .padding(.vertical, 3)
     }
+
+    /// 行内标签（类型 / 定时 / 分支 / 自动新增）。单行展示时只取前 3 个，其余折叠。
+    private var tags: [RowTag] {
+        var result: [RowTag] = [
+            RowTag(text: item.typeValue.title, color: Theme.info),
+            RowTag(text: item.scheduleDescription, color: Theme.brand)
+        ]
+        if let branch = item.branch, !branch.isEmpty {
+            result.append(RowTag(text: branch, color: Theme.textSecondary))
+        }
+        if item.isAutoAddCron {
+            result.append(RowTag(text: "自动新增任务", color: Theme.success))
+        }
+        return result
+    }
+}
+
+/// 订阅行标签的轻量载体，避免在 View 里堆叠大量条件分支。
+private struct RowTag: Hashable {
+    let text: String
+    let color: Color
 }

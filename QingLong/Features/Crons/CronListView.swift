@@ -28,16 +28,68 @@ final class CronListViewModel: ObservableObject {
         }
     }
 
-    @Published var crons: [QLCron] = []
-    @Published var keyword: String = ""
-    @Published var filter: Filter = .all
-    @Published var selectedLabel: String?
+    @Published var crons: [QLCron] = [] { didSet { recompute() } }
+    @Published var keyword: String = "" { didSet { if keyword != oldValue { scheduleSearchRecompute() } } }
+    @Published var filter: Filter = .all { didSet { recompute() } }
+    @Published var selectedLabel: String? { didSet { recompute() } }
     @Published private(set) var busyIDs: Set<Int> = []
     @Published var state: LoadState = .idle
 
-    var labels: [String] { crons.allLabels }
+    /// 派生数据统一缓存：只在 crons / 筛选条件变化时重算一次。
+    /// 之前 filtered、labels、各筛选项计数都是计算属性，会在每次渲染时
+    /// 反复做 O(n log n) 的过滤排序（一个页面动辄重算十几次），列表越大越卡。
+    @Published private(set) var filtered: [QLCron] = []
+    @Published private(set) var labels: [String] = []
+    @Published private(set) var filterCounts: [Filter: Int] = [:]
 
-    var filtered: [QLCron] {
+    private var searchTask: Task<Void, Never>?
+    private var lastLoadedAt: Date?
+
+    init() {
+        // 命中进程内缓存时先直接出内容，随后由页面静默刷新
+        crons = ListCache.crons
+        if !crons.isEmpty { state = .loaded }
+        recompute()
+    }
+
+    func count(for filter: Filter) -> Int { filterCounts[filter] ?? 0 }
+
+    var runningCount: Int { filterCounts[.running] ?? 0 }
+
+    /// 搜索输入做 180ms 防抖，避免每敲一个字都重排整个列表
+    private func scheduleSearchRecompute() {
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            self?.recompute()
+        }
+    }
+
+    private func recompute() {
+        var counts: [Filter: Int] = [:]
+        counts[.all] = crons.count
+        var running = 0, enabled = 0, disabled = 0, pinned = 0, subscription = 0
+        var labelSet = Set<String>()
+        for cron in crons {
+            switch cron.statusValue {
+            case .running, .queued: running += 1
+            case .disabled: disabled += 1
+            default: break
+            }
+            if cron.statusValue != .disabled { enabled += 1 }
+            if cron.isPinnedValue { pinned += 1 }
+            if cron.isFromSubscription { subscription += 1 }
+            for label in cron.labelList { labelSet.insert(label) }
+        }
+        counts[.running] = running
+        counts[.enabled] = enabled
+        counts[.disabled] = disabled
+        counts[.pinned] = pinned
+        counts[.subscription] = subscription
+        filterCounts = counts
+        labels = labelSet.sorted()
+
         var list = crons
         switch filter {
         case .all: break
@@ -50,19 +102,22 @@ final class CronListViewModel: ObservableObject {
         if let selectedLabel {
             list = list.filter { $0.labelList.contains(selectedLabel) }
         }
-        list = list.search(keyword)
+        let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKeyword.isEmpty {
+            list = list.search(trimmedKeyword)
+        }
         // 置顶优先，其次保持面板返回顺序
-        let pinned = list.filter(\.isPinnedValue)
+        let pinnedList = list.filter(\.isPinnedValue)
         let others = list.filter { !$0.isPinnedValue }
-        return pinned + others
+        filtered = pinnedList + others
     }
-
-    var runningCount: Int { crons.filter { $0.statusValue == .running }.count }
 
     func load(session: AppSession, silent: Bool = false) async {
         if !silent, case .idle = state { state = .loading }
         do {
             crons = try await CronService.list()
+            lastLoadedAt = Date()
+            ListCache.store(crons: crons)
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
@@ -73,6 +128,16 @@ final class CronListViewModel: ObservableObject {
             }
             state = .failed(apiError.localizedDescription)
         }
+    }
+
+    /// 进入页面时的刷新：短时间内已经加载过就跳过，
+    /// 避免每次切 Tab 都重新请求并整表重建（这是"卡一下"的主要来源之一）。
+    /// 下拉刷新与操作后的刷新仍走 load(...)，不受影响。
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
+        if !crons.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+            return
+        }
+        await load(session: session)
     }
 
     /// 执行一个会改变任务状态的操作，并刷新列表
@@ -152,7 +217,7 @@ struct CronListView: View {
                 }
             }
             .refreshable { await viewModel.load(session: session) }
-            .task { await viewModel.load(session: session) }
+            .task { await viewModel.loadIfStale(session: session) }
             .onChange(of: session.phase) { phase in
                 if phase == .ready {
                     Task { await viewModel.load(session: session) }
@@ -265,14 +330,8 @@ struct CronListView: View {
     }
 
     private func count(for filter: CronListViewModel.Filter) -> Int? {
-        switch filter {
-        case .all: return viewModel.crons.count
-        case .running: return viewModel.crons.filter { $0.statusValue == .running || $0.statusValue == .queued }.count
-        case .enabled: return viewModel.crons.filter { $0.statusValue != .disabled }.count
-        case .disabled: return viewModel.crons.filter { $0.statusValue == .disabled }.count
-        case .pinned: return viewModel.crons.filter(\.isPinnedValue).count
-        case .subscription: return viewModel.crons.filter(\.isFromSubscription).count
-        }
+        // 计数在 ViewModel 里一次算好，这里不再逐项过滤
+        viewModel.count(for: filter)
     }
 
     private var list: some View {
@@ -356,6 +415,9 @@ struct CronRow: View {
     let cron: QLCron
     var isBusy: Bool = false
 
+    /// 标签在行内只展示前两个，避免自定义 Layout 逐行测量带来的滚动开销
+    private var rowLabels: [String] { cron.labelList }
+
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Spacing.medium) {
             ZStack {
@@ -406,10 +468,15 @@ struct CronRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if !cron.labelList.isEmpty {
-                    WrapHStack(spacing: 5) {
-                        ForEach(cron.labelList, id: \.self) { label in
+                if !rowLabels.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(rowLabels.prefix(2), id: \.self) { label in
                             TagChip(text: label, color: Theme.brand)
+                        }
+                        if rowLabels.count > 2 {
+                            Text("+\(rowLabels.count - 2)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(Theme.textTertiary)
                         }
                     }
                 }

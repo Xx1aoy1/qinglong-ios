@@ -11,23 +11,55 @@ import UIKit
 @MainActor
 final class DependenceListViewModel: ObservableObject {
 
-    @Published var items: [QLDependence] = []
-    @Published var keyword = ""
-    @Published var typeFilter: DependenceType?
+    @Published var items: [QLDependence] = [] { didSet { recompute() } }
+    @Published var keyword = "" { didSet { if keyword != oldValue { scheduleSearchRecompute() } } }
+    @Published var typeFilter: DependenceType? { didSet { recompute() } }
     @Published var state: LoadState = .idle
     @Published private(set) var busyIDs: Set<Int> = []
     @Published var logTarget: QLDependence?
 
-    var filtered: [QLDependence] {
-        items.filtered(type: typeFilter).search(keyword)
+    /// 派生数据缓存：只在数据或筛选条件变化时重算，
+    /// 否则每次渲染（含 4 秒轮询触发的刷新）都要重新过滤并扫描全表
+    @Published private(set) var filtered: [QLDependence] = []
+    @Published private(set) var hasBusy: Bool = false
+
+    private var searchTask: Task<Void, Never>?
+    private var lastLoadedAt: Date?
+
+    init() {
+        items = ListCache.dependences
+        if !items.isEmpty { state = .loaded }
+        recompute()
     }
 
-    var hasBusy: Bool { items.contains(where: \.isBusy) }
+    private func scheduleSearchRecompute() {
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            self?.recompute()
+        }
+    }
+
+    private func recompute() {
+        filtered = items.filtered(type: typeFilter).search(keyword)
+        hasBusy = items.contains(where: \.isBusy)
+    }
+
+    /// 进入页面时刷新：短时间内已加载过就跳过，避免切 Tab 触发整表重建
+    func loadIfStale(session: AppSession, maxAge: TimeInterval = 20) async {
+        if !items.isEmpty, let last = lastLoadedAt, Date().timeIntervalSince(last) < maxAge {
+            return
+        }
+        await load(session: session)
+    }
 
     func load(session: AppSession, silent: Bool = false) async {
         if !silent, case .idle = state { state = .loading }
         do {
             items = try await DependenceService.list()
+            lastLoadedAt = Date()
+            ListCache.store(dependences: items)
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
@@ -78,7 +110,7 @@ struct DependenceListView: View {
             }
             .refreshable { await viewModel.load(session: session) }
             .task {
-                await viewModel.load(session: session)
+                await viewModel.loadIfStale(session: session)
                 // 有进行中的安装 / 卸载任务时，自动轮询刷新
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 4_000_000_000)
