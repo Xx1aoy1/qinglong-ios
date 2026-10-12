@@ -59,7 +59,12 @@ struct LoginLogItem: Codable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, info, timestamp, address, ip, platform, status
+        case id, type, info
+    }
+
+    /// 2.22+ 扁平结构的字段（不属于存储属性，仅供解码）
+    private enum FlatKeys: String, CodingKey {
+        case timestamp, address, ip, platform, status
     }
 
     init(id: Int? = nil, type: String? = nil, info: Info?) {
@@ -77,12 +82,13 @@ struct LoginLogItem: Codable, Identifiable, Equatable {
             return
         }
         // 扁平结构
+        let flat = try decoder.container(keyedBy: FlatKeys.self)
         info = Info(
-            timestamp: try? container.decodeIfPresent(Int.self, forKey: .timestamp),
-            address: try? container.decodeIfPresent(String.self, forKey: .address),
-            ip: try? container.decodeIfPresent(String.self, forKey: .ip),
-            platform: try? container.decodeIfPresent(String.self, forKey: .platform),
-            status: try? container.decodeIfPresent(Int.self, forKey: .status)
+            timestamp: try? flat.decodeIfPresent(Int.self, forKey: .timestamp),
+            address: try? flat.decodeIfPresent(String.self, forKey: .address),
+            ip: try? flat.decodeIfPresent(String.self, forKey: .ip),
+            platform: try? flat.decodeIfPresent(String.self, forKey: .platform),
+            status: try? flat.decodeIfPresent(Int.self, forKey: .status)
         )
     }
 
