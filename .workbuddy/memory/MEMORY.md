@@ -17,7 +17,9 @@
 - 本机为 Windows，无 Swift/Xcode 工具链 → 编译正确性只能靠 CI 验证
 - 沙箱内 **`github.com` 不可达，仅 `api.github.com` 可达** → `git push/fetch` 会失败
   - 推送改用 GitHub **Git Data API**（blobs → trees → commits → PATCH ref）建提交
-  - 本地与远端 commit sha 会不一致，但 tree 相同；正常网络下用 `git fetch && git reset --hard origin/main` 对齐
+  - **API 创建的 commit 对象结尾不带换行**（内容是「头 + 空行 + message」），而真实 `git commit` 的 message 后带一个 `\n` → 两种途径即使内容等价，**SHA 也永远不同**。拿 API 返回的 `message` 重建对象时必须「补换行 / 不补换行」两种变体都试，取 SHA 吻合的那个。`POST /git/tags` 同理
+  - 对齐本地用「**物化**」法：`GET /git/trees/{sha}`（**非递归**，字段是 `path` 不是 `name`）拿全 tree/blob → `git hash-object -t blob -w --stdin` 写 blob → `git mktree` **自底向上**写 tree → `git hash-object -t commit -w --stdin` 写 commit → `git update-ref refs/heads/main` / `refs/tags/*` → `git reset`。可把本地 SHA 拉到与远端**逐字节一致**，彻底消除分叉
+- 提交身份统一为 `Xx1aoy1 <151541726+Xx1aoy1@users.noreply.github.com>`；**任何提交的作者/提交者邮箱都不得含其他托管平台的域名**（曾因 `git config` 里的旧邮箱把平台名带进全部 14 个提交头）
 - 工具输出渲染层可能把 `String` 显示成假字符串（曾出现 `Vfjxct`）→ 判断源码问题必须做字节级核验，不能按显示内容改代码
 - 临时脚本一律放仓库外（`%TEMP%`），`git add -A` 曾把含 token 的脚本提交，被 GitHub push protection 拦下（GH013）
 - 沙箱代理端口会变（见过 5605 / 3469）。`objects.githubusercontent.com` 可达但**间歇性 502**，下载 Release 资产要带重试；下载走 `GET /repos/{o}/{r}/releases/assets/{id}` + `Accept: application/octet-stream`
