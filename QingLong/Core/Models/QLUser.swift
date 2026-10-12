@@ -71,7 +71,7 @@ struct LoginLogItem: Codable, Identifiable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try? container.decodeIfPresent(Int.self, forKey: .id)
-        type = try? container.decodeIfPresent(Vfjxct.self, forKey: .type)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
         if let nested = try? container.decodeIfPresent(Info.self, forKey: .info) {
             info = nested
             return
@@ -79,9 +79,9 @@ struct LoginLogItem: Codable, Identifiable, Equatable {
         // 扁平结构
         info = Info(
             timestamp: try? container.decodeIfPresent(Int.self, forKey: .timestamp),
-            address: try? container.decodeIfPresent(Vfjxct.self, forKey: .address),
-            ip: try? container.decodeIfPresent(Vfjxct.self, forKey: .ip),
-            platform: try? container.decodeIfPresent(Vfjxct.self, forKey: .platform),
+            address: try? container.decodeIfPresent(String.self, forKey: .address),
+            ip: try? container.decodeIfPresent(String.self, forKey: .ip),
+            platform: try? container.decodeIfPresent(String.self, forKey: .platform),
             status: try? container.decodeIfPresent(Int.self, forKey: .status)
         )
     }
