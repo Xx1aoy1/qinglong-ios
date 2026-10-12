@@ -185,7 +185,11 @@ struct CronPayload: Encodable {
 
 extension Array where Element == QLCron {
     var allLabels: [String] {
-        Array(Set(flatMap { $0.labelList })).sorted()
+        var result = Set<String>()
+        for cron in self {
+            result.formUnion(cron.labelList)
+        }
+        return result.sorted()
     }
 
     func search(_ keyword: String) -> [QLCron] {

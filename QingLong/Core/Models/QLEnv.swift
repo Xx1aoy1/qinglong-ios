@@ -115,7 +115,11 @@ struct MovePayload: Encodable {
 
 extension Array where Element == QLEnv {
     var allLabels: [String] {
-        Array(Set(flatMap { $0.labelList })).sorted()
+        var result = Set<String>()
+        for env in self {
+            result.formUnion(env.labelList)
+        }
+        return result.sorted()
     }
 
     func search(_ keyword: String) -> [QLEnv] {

@@ -38,18 +38,18 @@ struct ServerListView: View {
             .navigationTitle(mode == .onboarding ? "连接青龙面板" : "服务器管理")
             .navigationBarTitleDisplayMode(mode == .onboarding ? .large : .inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if mode == .manage {
+                        Button("完成") { presentationMode.wrappedValue.dismiss() }
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         editing = .create
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 15, weight: .semibold))
-                    }
-                }
-
-                if mode == .manage {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("完成") { presentationMode.wrappedValue.dismiss() }
                     }
                 }
             }

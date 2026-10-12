@@ -174,7 +174,7 @@ enum NotificationCatalog {
         NotificationChannel(
             type: "pushDeer",
             title: "PushDeer",
-            symbol: "arrow.up.heart.fill",
+            symbol: "heart.fill",
             fields: [
                 NotificationField("pushDeerKey", "PushKey", kind: .secure),
                 NotificationField("pushDeerUrl", "自建地址", placeholder: "https://api2.pushdeer.com")

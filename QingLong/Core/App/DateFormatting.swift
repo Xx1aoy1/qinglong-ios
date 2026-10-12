@@ -19,7 +19,7 @@ extension Date {
             return "\(Int(interval / 60)) 分钟前"
         case ..<86400:
             return "\(Int(interval / 3600)) 小时前"
-        case ..<86400 * 7:
+        case ..<604_800.0:
             return "\(Int(interval / 86400)) 天前"
         default:
             return Self.shortFormatter.string(from: self)
@@ -64,17 +64,22 @@ extension Int {
     }
 }
 
-extension String {
-    var nilIfEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
+/// 同时适用于 `String` 与 `Substring`（`split(separator:)` 返回的是 `Substring`）
+extension StringProtocol {
+    /// 去除首尾空白与换行
     var trimmed: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 把多行文本按行拆分并去空行
+    /// 去除首尾空白后若为空则返回 nil
+    var nilIfEmpty: String? {
+        let value = trimmed
+        return value.isEmpty ? nil : value
+    }
+}
+
+extension String {
+    /// 把多行文本按行拆分并去掉空行
     var nonEmptyLines: [String] {
         components(separatedBy: .newlines)
             .map { $0.trimmed }

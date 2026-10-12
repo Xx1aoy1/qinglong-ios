@@ -158,7 +158,7 @@ struct SystemConfigView: View {
             case .failed(let message) where viewModel.info.panelTitle == nil:
                 ScrollView {
                     EmptyStateView(
-                        symbol: "gearshape.badge.xmark",
+                        symbol: "exclamationmark.triangle.fill",
                         title: "无法读取配置",
                         message: message,
                         actionTitle: "重试"

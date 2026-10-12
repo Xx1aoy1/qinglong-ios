@@ -37,3 +37,10 @@ Package.resolved
 # 用于本地调试的服务器地址等
 LocalConfig.plist
 secrets.env
+
+# 本地临时/调试文件
+.ci_logs.txt
+.jobs.json
+.runs.json
+.poll_ci.sh
+*.local

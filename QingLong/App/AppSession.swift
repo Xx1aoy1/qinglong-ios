@@ -250,8 +250,8 @@ final class AppSession: ObservableObject {
     // MARK: - 刷新
 
     func refreshAll() async {
-        async let userTask = fetchUser()
-        async let statusTask = fetchSystemStatus()
+        async let userTask: Void = fetchUser()
+        async let statusTask: Void = fetchSystemStatus()
         _ = await (userTask, statusTask)
     }
 

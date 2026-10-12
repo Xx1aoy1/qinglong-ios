@@ -275,7 +275,7 @@ struct CronDetailView: View {
                 NavigationRow(
                     symbol: "doc.text.magnifyingglass",
                     title: "实时日志",
-                    subtitle: cron.log_path?.isEmpty == false ? cron.log_path : "查看最近一次运行的输出",
+                    subtitle: cron.log_path.flatMap { $0.isEmpty ? nil : $0 } ?? "查看最近一次运行的输出",
                     tone: .progress
                 )
             }
