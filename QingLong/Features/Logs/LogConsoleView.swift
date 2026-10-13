@@ -212,11 +212,15 @@ struct LogConsoleView: View {
             let chunk = try await fetch(nextOffset, chunkSize, false)
             isRunning = chunk.isRunning || chunk.logStatus == "running"
 
-            if chunk.truncated == true {
-                // 日志被轮转或截断，重置
-                text = chunk.content
-                nextOffset = chunk.nextOffset ?? chunk.content.utf8.count
-                total = chunk.total ?? 0
+            // 注意：后端 logReader 的 truncated 语义是「本次分片未覆盖整个文件」，
+            // 客户端追平文件末尾时它同样为 true（offset > 0 恒成立），
+            // 绝不能据此清空已累积的内容。
+            // 真正需要重置的场景只有一种：日志被轮转 / 清空，即文件比已读位置还小。
+            if let newTotal = chunk.total, nextOffset > newTotal {
+                let fresh = try await fetch(nil, chunkSize, true)
+                text = fresh.content
+                nextOffset = fresh.nextOffset ?? fresh.content.utf8.count
+                total = fresh.total ?? 0
                 return
             }
 
