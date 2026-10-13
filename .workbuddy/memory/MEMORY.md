@@ -40,6 +40,16 @@
 - `GET /api/dependencies`：返回体含**每条依赖的完整安装日志**（`DependenceModel.findAll()` 带 `log` JSON 列，单条可达 MB），且每次请求都 `refreshInstalledStatuses()` 逐条跑 shell 探测（并发 5）→ 秒级耗时、响应数 MB。客户端策略：缓存 5 分钟、静默刷新、落盘前剥掉 `log`、超时放宽到 60s。
 - 所有响应一律经 `APIClient.decodeOffMain` 在后台队列解码（数 MB JSON 在主线程解码会卡死）；该函数用**独立 JSONDecoder 实例**，因为 `JSONCoder.decoder` 是共享静态实例、非线程安全。
 
+## 日志分片接口的 `truncated` 语义（踩过坑，务必牢记）
+- 后端 `back/shared/logReader.ts`：`truncated: offset > 0 || nextOffset < total` —— 它表示**「本次分片未覆盖整个文件」**，**不是**「日志被轮转」。
+- 客户端增量轮询追平文件末尾后（`offset == total`），`offset > 0` 恒成立 → `truncated` 恒为 `true`。
+- 因此**绝不能**用 `truncated` 判断轮转并清空已读内容（曾导致实时日志看几秒后整页变「暂无日志内容」）。
+- 正确的轮转判定：`chunk.total < nextOffset`（文件比已读位置还小）时才静默重取尾部 `fetch(nil, chunkSize, true)`。
+- 任务日志 / 订阅日志 / 面板日志共用 `LogConsoleView`，改一处即可全覆盖。
+
+## 运维提示
+- GitHub token 会轮换；失效时所有 API 返回 **401 Bad credentials**（区别于 403 限流）。此时向用户索取新 token，并把 `%TEMP%/ql_*.py` 里的旧 token 批量替换即可继续。**不要把 token 写进仓库或记忆文件。**
+
 ## 显示层陷阱（务必牢记）
 - `String` 在某些工具输出里会被**替换显示**成 `Vfjxct`（CI 能编译过即证明是假象）。**绝不能按显示内容改代码**，必须 `open(p,'rb')` 做字节扫描确认。
 
