@@ -247,6 +247,13 @@ struct DashboardView: View {
                     QuickActionLabel(title: "依赖管理", symbol: "cube.box.fill", tone: .warning)
                 }
                 .buttonStyle(.pressable)
+
+                NavigationLink {
+                    ConfigFilesView()
+                } label: {
+                    QuickActionLabel(title: "配置文件", symbol: "slider.horizontal.3", tone: .neutral)
+                }
+                .buttonStyle(.pressable)
             }
         }
     }
