@@ -107,6 +107,7 @@ struct MoreView: View {
             }
 
             navGroup(title: "面板配置") {
+                navRow("配置文件", "slider.horizontal.3", .warning) { ConfigFilesView() }
                 navRow("面板设置", "gearshape.fill", .progress) { SystemConfigView() }
                 navRow("通知设置", "bell.badge.fill", .danger) { NotificationSettingsView() }
                 navRow("账号与安全", "lock.shield.fill", .info) { AccountView() }

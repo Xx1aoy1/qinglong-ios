@@ -35,6 +35,26 @@ final class CronListViewModel: ObservableObject {
     @Published private(set) var busyIDs: Set<Int> = []
     @Published var state: LoadState = .idle
 
+    // MARK: - 视图（面板侧的分组标签页）
+
+    @Published private(set) var views: [QLCronView] = [] { didSet { recompute() } }
+    @Published var selectedViewID: Int? { didSet { if selectedViewID != oldValue { recompute() } } }
+    /// 面板版本过低（没有 /api/crons/views）时隐藏整条视图栏
+    @Published private(set) var viewsAvailable = true
+
+    /// 只展示启用中的非内置视图；内置的「全部任务」由最左侧固定标签代表
+    var viewTabs: [QLCronView] {
+        views.filter { $0.isEnabled && !$0.isSystem }
+    }
+
+    private var activeView: QLCronView? {
+        guard let selectedViewID else { return nil }
+        return views.first { $0.id == selectedViewID && $0.isEnabled }
+    }
+
+    /// 当前选中的视图（供「编辑当前视图」入口使用）
+    var activeViewForEditing: QLCronView? { activeView }
+
     /// 派生数据统一缓存：只在 crons / 筛选条件变化时重算一次。
     /// 之前 filtered、labels、各筛选项计数都是计算属性，会在每次渲染时
     /// 反复做 O(n log n) 的过滤排序（一个页面动辄重算十几次），列表越大越卡。
@@ -66,11 +86,15 @@ final class CronListViewModel: ObservableObject {
     }
 
     private func recompute() {
+        // 视图条件先求值，后面的状态胶囊 / 标签 / 关键字都在视图范围内继续收窄，
+        // 这样胶囊上的计数与用户看到的列表始终一致。
+        let scoped = activeView.map { crons.applying($0) } ?? crons
+
         var counts: [Filter: Int] = [:]
-        counts[.all] = crons.count
+        counts[.all] = scoped.count
         var running = 0, enabled = 0, disabled = 0, pinned = 0, subscription = 0
         var labelSet = Set<String>()
-        for cron in crons {
+        for cron in scoped {
             switch cron.statusValue {
             case .running, .queued: running += 1
             case .disabled: disabled += 1
@@ -89,7 +113,7 @@ final class CronListViewModel: ObservableObject {
         filterCounts = counts
         labels = labelSet.sorted()
 
-        var list = crons
+        var list = scoped
         switch filter {
         case .all: break
         case .running: list = list.filter { $0.statusValue == .running || $0.statusValue == .queued }
@@ -105,10 +129,14 @@ final class CronListViewModel: ObservableObject {
         if !trimmedKeyword.isEmpty {
             list = list.search(trimmedKeyword)
         }
-        // 置顶优先，其次保持面板返回顺序
-        let pinnedList = list.filter(\.isPinnedValue)
-        let others = list.filter { !$0.isPinnedValue }
-        filtered = pinnedList + others
+        // 视图自带排序时以它的顺序为准；否则置顶优先，其次保持面板返回顺序
+        if let view = activeView, view.hasSorts {
+            filtered = list
+        } else {
+            let pinnedList = list.filter(\.isPinnedValue)
+            let others = list.filter { !$0.isPinnedValue }
+            filtered = pinnedList + others
+        }
     }
 
     func load(session: AppSession, silent: Bool = false) async {
@@ -138,6 +166,8 @@ final class CronListViewModel: ObservableObject {
     /// 已有缓存但已过期时走静默刷新，页面不会闪一下 loading。
     /// 下拉刷新与操作后的刷新仍走 load(...)，不受影响。
     func loadIfStale(session: AppSession, maxAge: TimeInterval = 60) async {
+        // 视图列表很轻，每次进页面顺带刷新一次；失败（旧面板没有该接口）时隐藏视图栏
+        await loadViews(session: session)
         if !crons.isEmpty {
             if let last = ListCache.lastLoaded(.crons),
                Date().timeIntervalSince(last) < maxAge {
@@ -147,6 +177,24 @@ final class CronListViewModel: ObservableObject {
             return
         }
         await load(session: session)
+    }
+
+    // MARK: - 视图
+
+    func loadViews(session: AppSession) async {
+        do {
+            views = try await CronViewService.list()
+            viewsAvailable = true
+            // 选中的视图被停用 / 删除后回到「全部任务」
+            if let selectedViewID, !views.contains(where: { $0.id == selectedViewID && $0.isEnabled }) {
+                self.selectedViewID = nil
+            }
+        } catch {
+            let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
+            if apiError == .cancelled { return }
+            if apiError.isUnauthorized { session.handle(error); return }
+            viewsAvailable = false
+        }
     }
 
     /// 执行一个会改变任务状态的操作，并刷新列表
@@ -207,6 +255,10 @@ struct CronListView: View {
     @State private var showsCreate = false
     @State private var pendingDelete: QLCron?
 
+    @State private var showsCreateView = false
+    @State private var showsManageViews = false
+    @State private var editingView: QLCronView?
+
     init() {}
 
     var body: some View {
@@ -225,12 +277,30 @@ struct CronListView: View {
                     }
                 }
             }
-            .refreshable { await viewModel.load(session: session) }
+            .refreshable {
+                await viewModel.loadViews(session: session)
+                await viewModel.load(session: session)
+            }
             .task { await viewModel.loadIfStale(session: session) }
             .onChange(of: session.phase) { phase in
                 if phase == .ready {
-                    Task { await viewModel.load(session: session) }
+                    Task {
+                        await viewModel.loadViews(session: session)
+                        await viewModel.load(session: session)
+                    }
                 }
+            }
+            .sheet(isPresented: $showsCreateView) {
+                CronViewEditorView(view: nil) { reloadViews() }
+                    .environmentObject(session)
+            }
+            .sheet(item: $editingView) { view in
+                CronViewEditorView(view: view) { reloadViews() }
+                    .environmentObject(session)
+            }
+            .sheet(isPresented: $showsManageViews) {
+                CronViewManageView { reloadViews() }
+                    .environmentObject(session)
             }
             .sheet(isPresented: $showsCreate) {
                 CronEditView(target: .create)
@@ -301,54 +371,138 @@ struct CronListView: View {
 
     private var filterBar: some View {
         VStack(spacing: Theme.Spacing.small) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Theme.Spacing.small) {
-                    ForEach(CronListViewModel.Filter.allCases) { item in
-                        FilterChip(
-                            title: item.title,
-                            count: count(for: item),
-                            isSelected: viewModel.filter == item
-                        ) {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                viewModel.filter = item
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, Theme.Spacing.large)
+            if viewModel.viewsAvailable {
+                viewTabsRow
             }
-
+            statusRow
             if !viewModel.labels.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Theme.Spacing.small) {
-                        FilterChip(
-                            title: "全部标签",
-                            count: nil,
-                            isSelected: viewModel.selectedLabel == nil
-                        ) {
-                            viewModel.selectedLabel = nil
-                        }
-                        ForEach(viewModel.labels, id: \.self) { label in
-                            FilterChip(
-                                title: label,
-                                count: nil,
-                                isSelected: viewModel.selectedLabel == label
-                            ) {
-                                viewModel.selectedLabel = viewModel.selectedLabel == label ? nil : label
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Theme.Spacing.large)
-                }
+                labelsRow
             }
         }
         .padding(.vertical, Theme.Spacing.small)
         .background(Theme.background)
     }
 
+    // MARK: - 视图标签栏
+
+    private var viewTabsRow: some View {
+        HStack(spacing: Theme.Spacing.small) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Spacing.small) {
+                    FilterChip(
+                        title: "全部任务",
+                        count: nil,
+                        isSelected: viewModel.selectedViewID == nil
+                    ) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            viewModel.selectedViewID = nil
+                        }
+                    }
+
+                    ForEach(viewModel.viewTabs) { view in
+                        FilterChip(
+                            title: view.name,
+                            count: nil,
+                            isSelected: viewModel.selectedViewID == view.id
+                        ) {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                viewModel.selectedViewID = viewModel.selectedViewID == view.id ? nil : view.id
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, Theme.Spacing.large)
+                .padding(.trailing, Theme.Spacing.small)
+            }
+
+            viewMenu
+                .padding(.trailing, Theme.Spacing.medium)
+        }
+    }
+
+    private var viewMenu: some View {
+        Menu {
+            Button {
+                showsCreateView = true
+            } label: {
+                Label("创建视图", systemImage: "plus.circle")
+            }
+
+            Button {
+                showsManageViews = true
+            } label: {
+                Label("视图管理", systemImage: "slider.horizontal.3")
+            }
+
+            if let view = viewModel.activeViewForEditing {
+                Divider()
+                Button {
+                    editingView = view
+                } label: {
+                    Label("编辑「\(view.name)」", systemImage: "pencil")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Theme.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Theme.surfaceElevated))
+                .overlay(Circle().stroke(Theme.stroke, lineWidth: 0.6))
+        }
+    }
+
+    private var statusRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.small) {
+                ForEach(CronListViewModel.Filter.allCases) { item in
+                    FilterChip(
+                        title: item.title,
+                        count: count(for: item),
+                        isSelected: viewModel.filter == item
+                    ) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            viewModel.filter = item
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.large)
+        }
+    }
+
+    private var labelsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.small) {
+                FilterChip(
+                    title: "全部标签",
+                    count: nil,
+                    isSelected: viewModel.selectedLabel == nil
+                ) {
+                    viewModel.selectedLabel = nil
+                }
+                ForEach(viewModel.labels, id: \.self) { label in
+                    FilterChip(
+                        title: label,
+                        count: nil,
+                        isSelected: viewModel.selectedLabel == label
+                    ) {
+                        viewModel.selectedLabel = viewModel.selectedLabel == label ? nil : label
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.large)
+        }
+    }
+
     private func count(for filter: CronListViewModel.Filter) -> Int? {
         // 计数在 ViewModel 里一次算好，这里不再逐项过滤
         viewModel.count(for: filter)
+    }
+
+    /// 视图增删改后重新拉取标签页，并让列表按新条件重新求值
+    private func reloadViews() {
+        Task { await viewModel.loadViews(session: session) }
     }
 
     private var list: some View {

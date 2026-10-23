@@ -32,7 +32,8 @@ QingLong for iOS is an open-source iOS client written from scratch for managing 
 | Module | Capabilities |
 | --- | --- |
 | 🏠 Dashboard | Panel status, task / environment / subscription / dependency counts, recent runs, quick actions |
-| ⏰ Scheduled tasks | List filters (running / enabled / disabled / pinned / from subscription), run and stop, enable, disable and pin, create and edit (cron / `@once` / `@boot`, labels, pre- and post-commands, multiple instances, working directory), live log tailing, historical logs, running instance management |
+| ⏰ Scheduled tasks | List filters (running / enabled / disabled / pinned / from subscription), **view tabs (create / manage / switch, evaluated locally)**, run and stop, enable, disable and pin, create and edit (cron / `@once` / `@boot`, labels, pre- and post-commands, multiple instances, working directory), live log tailing, historical logs, running instance management |
+| 🧾 Config files | Browse and edit the panel's config files (`config.sh`, `extra.sh`, `task_before.sh`, `task_after.sh`) and write changes straight back to the panel |
 | 📦 Environment variables | Full CRUD, enable and disable, labels, pinning, ordering, batch operations, JSON and `name=value` import/export, masked value display |
 | 🔄 Subscriptions | Create (public repo / private repo / single file), crontab and fixed-interval schedules, whitelist and blacklist, manual pull and stop, pull logs |
 | 📜 Scripts | Directory tree browsing, in-app editing and saving, run scripts directly and inspect output, create files and folders, rename, upload, download, delete |
