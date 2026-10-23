@@ -83,10 +83,11 @@ struct AboutView: View {
             SectionHeader(title: "功能概览")
 
             VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                BulletLine("定时任务：查看、启停、置顶、编辑、实时日志与多实例管理")
+                BulletLine("定时任务：查看、启停、置顶、编辑、视图分组、实时日志与多实例管理")
                 BulletLine("环境变量：增删改查、启停、标签、置顶、批量操作与导入导出")
                 BulletLine("订阅管理：新建订阅、手动拉取、启停、拉取日志")
                 BulletLine("脚本管理：目录浏览、在线编辑、运行脚本、重命名与删除")
+                BulletLine("配置文件：config.sh 等面板配置的浏览与在线编辑")
                 BulletLine("依赖管理：安装、重装、卸载与安装日志实时跟踪")
                 BulletLine("日志浏览：按目录浏览面板全部日志文件")
                 BulletLine("面板配置：标题、语言、时区、并发、镜像源、SSH 密钥")
