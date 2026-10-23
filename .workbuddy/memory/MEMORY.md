@@ -47,6 +47,13 @@
 - 正确的轮转判定：`chunk.total < nextOffset`（文件比已读位置还小）时才静默重取尾部 `fetch(nil, chunkSize, true)`。
 - 任务日志 / 订阅日志 / 面板日志共用 `LogConsoleView`，改一处即可全覆盖。
 
+## 面板接口对照（已核实，勿猜）
+- **配置文件**：`GET /api/configs/files`、`GET /api/configs/detail?path=`、`POST /api/configs/save {name, content}`。
+  旧的 `/api/config/file` 与 `GET /api/configs/:file` 已下线（410），不要再接。
+- **任务视图**：`GET/POST/PUT/DELETE /api/crons/views`、`PUT /views/enable|disable`（body 为 `[id]`）、`PUT /views/move`。
+  `filters: [{property, operation, value}]`（Reg/NotReg/In/Nin），`sorts: [{type, value}]`（字段名是 `value`），
+  `type == 1` 为内置视图不可改名删除。面板查询走 `queryString`，**客户端改为本地求值**以便复用列表缓存。
+
 ## 运维提示
 - GitHub token 会轮换；失效时所有 API 返回 **401 Bad credentials**（区别于 403 限流）。此时向用户索取新 token，并把 `%TEMP%/ql_*.py` 里的旧 token 批量替换即可继续。**不要把 token 写进仓库或记忆文件。**
 
