@@ -60,4 +60,11 @@
 ## 显示层陷阱（务必牢记）
 - `String` 在某些工具输出里会被**替换显示**成 `Vfjxct`（CI 能编译过即证明是假象）。**绝不能按显示内容改代码**，必须 `open(p,'rb')` 做字节扫描确认。
 
+## 文本编辑一律用 CodeEditorView（勿再用 TextEditor）
+- SwiftUI `TextEditor` 绑定长文本时，每敲一键都会把整段文本回写底层 `UITextView`，`selectedRange` / `contentOffset` 被重置 → 「删一个字符光标就跳走、找不回位置」。文本越长越明显。
+- 统一用 `QingLong/Design/CodeEditorView.swift`（`UIViewRepresentable` + `UITextView`）：只有 `view.text != text` 才整体替换；用户输入的回写直接短路；`markedTextRange != nil` 时跳过以免打断输入法组词；已关自动更正/智能标点；内边距走 `textContainerInset`。
+- 编辑类页面 `load()` 必须做幂等（`loadedPath` / `loadedKey` + `force`），否则重复 appear 会把编辑框内容顶回服务器版本。
+- 仍在用裸 `TextEditor` 的地方（CronEditView 命令、EnvEditView、SystemConfigView SSH key、CommandRunnerView）都是短文本，暂未替换。
+
+
 
