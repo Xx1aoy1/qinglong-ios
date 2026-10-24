@@ -11,15 +11,53 @@ import UIKit
 @MainActor
 final class ScriptEditorViewModel: ObservableObject {
 
-    @Published var content = ""
-    @Published var original = ""
+    /// 编辑框文本。**故意不用 @Published**：每敲一个字符都发通知会让整页重算、编辑区被
+    /// 重新布局，光标容易跑。只有「是否已修改 / 字符数」真的变了才通知 UI。
+    private(set) var content = ""
+    private(set) var original = ""
+
     @Published var state: LoadState = .idle
     @Published var isSaving = false
     @Published var isRunning = false
     @Published var runOutput: String = ""
     @Published var showsOutput = false
+    @Published private(set) var isDirty = false
+    @Published private(set) var charCount = 0
+
+    private var countTask: Task<Void, Never>?
 
     var hasChanges: Bool { content != original }
+
+    /// 给编辑器用的绑定：写入绕开 @Published，不惊动整页刷新
+    var textBinding: Binding<String> {
+        Binding(
+            get: { [weak self] in self?.content ?? "" },
+            set: { [weak self] in self?.updateContent($0) }
+        )
+    }
+
+    /// 编辑器每次输入都会走这里
+    func updateContent(_ new: String) {
+        guard new != content else { return }
+        content = new
+
+        // 脏标记只在 false/true 翻转时通知一次，连续输入不再重算页面
+        let dirty = hasChanges
+        if isDirty != dirty { isDirty = dirty }
+
+        scheduleCountRefresh()
+    }
+
+    /// 字符数不必每个按键都算（`String.count` 是 O(n)），攒一下再刷
+    private func scheduleCountRefresh() {
+        countTask?.cancel()
+        countTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
+            guard let self = self else { return }
+            let count = self.content.count
+            if self.charCount != count { self.charCount = count }
+        }
+    }
 
     /// 已加载成功的文件标识。用来挡住重复拉取 —— 重复拉取会把编辑框里的内容顶回服务器版本。
     private var loadedKey: String?
@@ -32,6 +70,8 @@ final class ScriptEditorViewModel: ObservableObject {
             let text = try await ScriptService.content(path: path, file: file)
             content = text
             original = text
+            charCount = text.count
+            if isDirty { isDirty = false }
             loadedKey = key
             state = .loaded
         } catch {
@@ -48,6 +88,7 @@ final class ScriptEditorViewModel: ObservableObject {
         do {
             try await ScriptService.save(filename: file, path: path, content: content, create: false)
             original = content
+            if isDirty { isDirty = false }
             session.showToast("已保存", tone: .success)
         } catch {
             session.handle(error)
@@ -64,6 +105,7 @@ final class ScriptEditorViewModel: ObservableObject {
             if hasChanges {
                 try await ScriptService.save(filename: file, path: path, content: content, create: false)
                 original = content
+                if isDirty { isDirty = false }
             }
             _ = try await ScriptService.run(filename: file, path: path, content: content)
             runOutput = "已提交执行请求，可在「日志」中查看输出。"
@@ -148,11 +190,11 @@ struct ScriptEditorView: View {
                         if viewModel.isSaving {
                             ProgressView().scaleEffect(0.8)
                         } else {
-                            Text(viewModel.hasChanges ? "保存*" : "保存")
+                            Text(viewModel.isDirty ? "保存*" : "保存")
                                 .font(.system(size: 15, weight: .semibold))
                         }
                     }
-                    .disabled(viewModel.isSaving || !viewModel.hasChanges)
+                    .disabled(viewModel.isSaving || !viewModel.isDirty)
 
                     Menu {
                         Button {
@@ -235,10 +277,10 @@ struct ScriptEditorView: View {
                     .foregroundColor(Theme.textTertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if viewModel.hasChanges {
+                if viewModel.isDirty {
                     StatusPill(text: "未保存", tone: .warning, symbol: "circle.fill", compact: true)
                 }
-                Text("\(viewModel.content.count) 字符")
+                Text("\(viewModel.charCount) 字符")
                     .font(Theme.Font.caption)
                     .monospacedDigit()
                     .foregroundColor(Theme.textTertiary)
@@ -250,7 +292,7 @@ struct ScriptEditorView: View {
             Divider().background(Theme.separator)
 
             // 同 ConfigFilesView：换成 UITextView 包装的编辑器，避免删字时光标跳走
-            CodeEditorView(text: $viewModel.content)
+            CodeEditorView(text: viewModel.textBinding)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

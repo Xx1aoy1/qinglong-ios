@@ -150,16 +150,53 @@ struct ConfigFileRow: View {
 @MainActor
 final class ConfigFileEditorViewModel: ObservableObject {
 
-    @Published var content = ""
-    @Published var original = ""
+    /// 编辑框文本。**故意不用 @Published**：每敲一个字符都发通知会让整页重算、编辑区被
+    /// 重新布局，光标容易跑。只有「是否已修改 / 字符数」真的变了才通知 UI。
+    private(set) var content = ""
+    private(set) var original = ""
+
     @Published var state: LoadState = .idle
     @Published var isSaving = false
+    @Published private(set) var isDirty = false
+    @Published private(set) var charCount = 0
 
     /// 已成功加载的文件路径。用于挡住重复拉取 —— 重复拉取会把编辑框里的内容顶回服务器版本，
     /// 表现为「刚删的字符又回来了 / 光标跑掉」。
     private var loadedPath: String?
+    private var countTask: Task<Void, Never>?
 
     var hasChanges: Bool { content != original }
+
+    /// 给编辑器用的绑定：写入绕开 @Published，不惊动整页刷新
+    var textBinding: Binding<String> {
+        Binding(
+            get: { [weak self] in self?.content ?? "" },
+            set: { [weak self] in self?.updateContent($0) }
+        )
+    }
+
+    /// 编辑器每次输入都会走这里
+    func updateContent(_ new: String) {
+        guard new != content else { return }
+        content = new
+
+        // 脏标记只在 false/true 翻转时通知一次，连续输入不再重算页面
+        let dirty = hasChanges
+        if isDirty != dirty { isDirty = dirty }
+
+        scheduleCountRefresh()
+    }
+
+    /// 字符数不必每个按键都算（`String.count` 是 O(n)），攒一下再刷
+    private func scheduleCountRefresh() {
+        countTask?.cancel()
+        countTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
+            guard let self = self else { return }
+            let count = self.content.count
+            if self.charCount != count { self.charCount = count }
+        }
+    }
 
     func load(path: String, session: AppSession, force: Bool = false) async {
         if !force, loadedPath == path, case .loaded = state { return }
@@ -168,6 +205,8 @@ final class ConfigFileEditorViewModel: ObservableObject {
             let text = try await ConfigService.content(path: path)
             content = text
             original = text
+            charCount = text.count
+            if isDirty { isDirty = false }
             loadedPath = path
             state = .loaded
         } catch {
@@ -184,6 +223,7 @@ final class ConfigFileEditorViewModel: ObservableObject {
         do {
             try await ConfigService.save(name: name, content: content)
             original = content
+            if isDirty { isDirty = false }
             session.showToast("已保存 \(name)", tone: .success)
         } catch {
             session.handle(error)
@@ -241,11 +281,11 @@ struct ConfigFileEditorView: View {
                         if viewModel.isSaving {
                             ProgressView().scaleEffect(0.8)
                         } else {
-                            Text(viewModel.hasChanges ? "保存*" : "保存")
+                            Text(viewModel.isDirty ? "保存*" : "保存")
                                 .font(.system(size: 15, weight: .semibold))
                         }
                     }
-                    .disabled(viewModel.isSaving || !viewModel.hasChanges)
+                    .disabled(viewModel.isSaving || !viewModel.isDirty)
 
                     Menu {
                         Button {
@@ -253,7 +293,7 @@ struct ConfigFileEditorView: View {
                         } label: { Label("导出到「文件」", systemImage: "square.and.arrow.up") }
 
                         Button {
-                            if viewModel.hasChanges {
+                            if viewModel.isDirty {
                                 showsRevertConfirm = true
                             } else {
                                 Task { await load(force: true) }
@@ -288,10 +328,10 @@ struct ConfigFileEditorView: View {
                     .foregroundColor(Theme.textTertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if viewModel.hasChanges {
+                if viewModel.isDirty {
                     StatusPill(text: "未保存", tone: .warning, symbol: "circle.fill", compact: true)
                 }
-                Text("\(viewModel.content.count) 字符")
+                Text("\(viewModel.charCount) 字符")
                     .font(Theme.Font.caption)
                     .monospacedDigit()
                     .foregroundColor(Theme.textTertiary)
@@ -303,7 +343,7 @@ struct ConfigFileEditorView: View {
             Divider().background(Theme.separator)
 
             // 用 UITextView 包装的编辑器：光标 / 滚动位置不会被输入回写顶掉
-            CodeEditorView(text: $viewModel.content)
+            CodeEditorView(text: viewModel.textBinding)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
