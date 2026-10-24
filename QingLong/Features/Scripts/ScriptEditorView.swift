@@ -21,12 +21,18 @@ final class ScriptEditorViewModel: ObservableObject {
 
     var hasChanges: Bool { content != original }
 
-    func load(path: String, file: String, session: AppSession) async {
+    /// 已加载成功的文件标识。用来挡住重复拉取 —— 重复拉取会把编辑框里的内容顶回服务器版本。
+    private var loadedKey: String?
+
+    func load(path: String, file: String, session: AppSession, force: Bool = false) async {
+        let key = "\(path)/\(file)"
+        if !force, loadedKey == key, case .loaded = state { return }
         state = .loading
         do {
             let text = try await ScriptService.content(path: path, file: file)
             content = text
             original = text
+            loadedKey = key
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
@@ -234,6 +240,7 @@ struct ScriptEditorView: View {
                 }
                 Text("\(viewModel.content.count) 字符")
                     .font(Theme.Font.caption)
+                    .monospacedDigit()
                     .foregroundColor(Theme.textTertiary)
             }
             .padding(.horizontal, Theme.Spacing.medium)
@@ -242,13 +249,9 @@ struct ScriptEditorView: View {
 
             Divider().background(Theme.separator)
 
-            TextEditor(text: $viewModel.content)
-                .font(Theme.Font.mono)
-                .foregroundColor(Theme.textPrimary)
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.never)
-                .padding(.horizontal, Theme.Spacing.small)
-                .background(Theme.surfaceSunken)
+            // 同 ConfigFilesView：换成 UITextView 包装的编辑器，避免删字时光标跳走
+            CodeEditorView(text: $viewModel.content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

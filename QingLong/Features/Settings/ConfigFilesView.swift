@@ -155,14 +155,20 @@ final class ConfigFileEditorViewModel: ObservableObject {
     @Published var state: LoadState = .idle
     @Published var isSaving = false
 
+    /// 已成功加载的文件路径。用于挡住重复拉取 —— 重复拉取会把编辑框里的内容顶回服务器版本，
+    /// 表现为「刚删的字符又回来了 / 光标跑掉」。
+    private var loadedPath: String?
+
     var hasChanges: Bool { content != original }
 
-    func load(path: String, session: AppSession) async {
+    func load(path: String, session: AppSession, force: Bool = false) async {
+        if !force, loadedPath == path, case .loaded = state { return }
         state = .loading
         do {
             let text = try await ConfigService.content(path: path)
             content = text
             original = text
+            loadedPath = path
             state = .loaded
         } catch {
             let apiError = (error as? APIError) ?? .unknown(error.localizedDescription)
@@ -192,6 +198,7 @@ struct ConfigFileEditorView: View {
     @EnvironmentObject private var session: AppSession
     @StateObject private var viewModel = ConfigFileEditorViewModel()
     @State private var shareItem: ShareItem?
+    @State private var showsRevertConfirm = false
 
     init(file: QLConfigFile) {
         self.file = file
@@ -246,7 +253,11 @@ struct ConfigFileEditorView: View {
                         } label: { Label("导出到「文件」", systemImage: "square.and.arrow.up") }
 
                         Button {
-                            Task { await load() }
+                            if viewModel.hasChanges {
+                                showsRevertConfirm = true
+                            } else {
+                                Task { await load(force: true) }
+                            }
                         } label: { Label("重新读取", systemImage: "arrow.clockwise") }
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.system(size: 15, weight: .semibold))
@@ -256,6 +267,12 @@ struct ConfigFileEditorView: View {
         }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
+        }
+        .alert("放弃未保存的修改？", isPresented: $showsRevertConfirm) {
+            Button("重新读取", role: .destructive) { Task { await load(force: true) } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("重新读取会用服务器上的内容覆盖编辑框里尚未保存的文字。")
         }
         .task { await load() }
     }
@@ -276,6 +293,7 @@ struct ConfigFileEditorView: View {
                 }
                 Text("\(viewModel.content.count) 字符")
                     .font(Theme.Font.caption)
+                    .monospacedDigit()
                     .foregroundColor(Theme.textTertiary)
             }
             .padding(.horizontal, Theme.Spacing.medium)
@@ -284,18 +302,14 @@ struct ConfigFileEditorView: View {
 
             Divider().background(Theme.separator)
 
-            TextEditor(text: $viewModel.content)
-                .font(Theme.Font.mono)
-                .foregroundColor(Theme.textPrimary)
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.never)
-                .padding(.horizontal, Theme.Spacing.small)
-                .background(Theme.surfaceSunken)
+            // 用 UITextView 包装的编辑器：光标 / 滚动位置不会被输入回写顶掉
+            CodeEditorView(text: $viewModel.content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private func load() async {
-        await viewModel.load(path: file.path, session: session)
+    private func load(force: Bool = false) async {
+        await viewModel.load(path: file.path, session: session, force: force)
     }
 
     private func share() async {
