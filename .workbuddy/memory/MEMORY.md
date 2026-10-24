@@ -62,9 +62,12 @@
 
 ## 文本编辑一律用 CodeEditorView（勿再用 TextEditor）
 - SwiftUI `TextEditor` 绑定长文本时，每敲一键都会把整段文本回写底层 `UITextView`，`selectedRange` / `contentOffset` 被重置 → 「删一个字符光标就跳走、找不回位置」。文本越长越明显。
-- 统一用 `QingLong/Design/CodeEditorView.swift`（`UIViewRepresentable` + `UITextView`）：只有 `view.text != text` 才整体替换；用户输入的回写直接短路；`markedTextRange != nil` 时跳过以免打断输入法组词；已关自动更正/智能标点；内边距走 `textContainerInset`。
+- 统一用 `QingLong/Design/CodeEditorView.swift`（`UIViewRepresentable` + `UITextView`）。
+- **只包 UITextView 还不够（1.0.6 就栽在这）**：只要在 `updateUIView` 里每次更新都重设 `textColor` / `font` / `isEditable` / `textContainerInset`，`UITextView` 的 setter 会重建文本属性并把 `selectedRange` 顶到末尾 —— 照样跳。**这些外观属性只能在「真的变了」时设置**（`Coordinator` 缓存上次的 scheme/font/insets/editable，比较后再设，且设完把 selectedRange 放回去）。纯输入路径一个 setter 都不许碰。
+- 第二道保险：编辑文本**不要用 `@Published`**。改为 `private(set) var content` + `var textBinding: Binding<String>{ Binding(get:set:) }`，输入只更新 `isDirty`（仅翻转时通知）+ 220ms 防抖的 `charCount`。这样输入过程完全不触发 SwiftUI 重算，`updateUIView` 根本不会被调用。
 - 编辑类页面 `load()` 必须做幂等（`loadedPath` / `loadedKey` + `force`），否则重复 appear 会把编辑框内容顶回服务器版本。
 - 仍在用裸 `TextEditor` 的地方（CronEditView 命令、EnvEditView、SystemConfigView SSH key、CommandRunnerView）都是短文本，暂未替换。
+
 
 
 
